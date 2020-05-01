@@ -1,0 +1,4 @@
+[build]
+target = "arm-unknown-linux-musleabihf"
+[target.arm-unknown-linux-musleabihf]
+rustflags=["-C","linker-flavor=ld.lld"]
