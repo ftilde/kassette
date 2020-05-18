@@ -6,8 +6,8 @@ RAMFS_ROOT=ramfs_root
 BUILD_ENV_FOLDER=build_env
 CC=$(TOOLCHAIN_FOLDER)/arm-unknown-linux-gnueabihf/bin/armv6l-unknown-linux-gnueabihf-gcc
 PACKAGE_ARCHIVES=$(DL_FOLDER)/alsa.tar.xz $(DL_FOLDER)/glibc.tar.xz $(DL_FOLDER)/gcclibs.tar.xz
-BUILD_LIBC="$(BUILD_ENV_FOLDER)/usr/lib/libc.so"
-INIT="target/arm-unknown-linux-gnueabihf/debug/rfid_player"
+BUILD_LIBC=$(BUILD_ENV_FOLDER)/usr/lib/libc.so
+INIT=target/arm-unknown-linux-gnueabihf/debug/rfid_player
 RAMFS_LIBS=$(RAMFS_ROOT)/usr/lib/libc.so $(RAMFS_ROOT)/usr/lib/libasound.so $(RAMFS_ROOT)/usr/lib/libgcc_s.so
 INITRAMFS=initramfs-linux.img
 
@@ -29,55 +29,38 @@ $(DL_FOLDER)/x-tools.tar.xz:
 	mkdir -p $(DL_FOLDER)
 	wget "https://archlinuxarm.org/builder/xtools/x-tools6h.tar.xz" -O $@
 
-toolchain: $(DL_FOLDER)/x-tools.tar.xz
-	tar -xf $^
+$(CC): $(DL_FOLDER)/x-tools.tar.xz
+	tar --touch -xf $^
+	chmod -R 777 $(TOOLCHAIN_FOLDER) || true
+	rm -rf $(TOOLCHAIN_FOLDER)
 	mv x-tools6h $(TOOLCHAIN_FOLDER)
 
-$(CC): toolchain
-
-build_env: $(PACKAGE_ARCHIVES)
+$(BUILD_LIBC): $(PACKAGE_ARCHIVES)
 	mkdir -p $(BUILD_ENV_FOLDER)
 	for archive in $^; do tar -C $(BUILD_ENV_FOLDER) -xf $$archive; done
 	sed -i "s#/usr/#$(BUILD_ENV_FOLDER)/usr/#g" $(BUILD_LIBC)
 
-$(INIT): build_env $(CC)
+$(INIT): $(BUILD_LIBC) $(CC)
 	PKG_CONFIG_ALLOW_CROSS=1 cargo build
 
-$(RAMFS_ROOT):
+$(RAMFS_ROOT)/lib:
 	mkdir -p $(RAMFS_ROOT)
-
-$(RAMFS_ROOT)/lib: $(RAMFS_ROOT)
 	if [ ! -L $@ ]; then ln -s /usr/lib $@; fi
 
-$(RAMFS_ROOT)/dev: $(RAMFS_ROOT)
+$(RAMFS_ROOT)/dev:
 	mkdir -p $@
 
-$(RAMFS_ROOT)/proc: $(RAMFS_ROOT)
+$(RAMFS_ROOT)/proc:
 	mkdir -p $@
 
 $(RAMFS_ROOT)/init: $(INIT)
 	cp $< $@
 
-$(RAMFS_ROOT)/usr/lib/libc.so: $(DL_FOLDER)/glibc.tar.xz $(RAMFS_ROOT)
-	tar -C $(RAMFS_ROOT) -xf $<
-$(RAMFS_ROOT)/usr/lib/libasound.so: $(DL_FOLDER)/alsa.tar.xz $(RAMFS_ROOT)
-	tar -C $(RAMFS_ROOT) -xf $<
-$(RAMFS_ROOT)/usr/lib/glibc_s.so: $(DL_FOLDER)/gcclibs.tar.xz $(RAMFS_ROOT)
-	tar -C $(RAMFS_ROOT) -xf $<
-
-ramfs_libs: $(RAMFS_LIBS)
-	# Remove unused libraries
+$(RAMFS_ROOT)/usr/lib/libc.so: $(DL_FOLDER)/glibc.tar.xz
+	mkdir -p $(RAMFS_ROOT)
+	tar -C $(RAMFS_ROOT) --touch -xf $<
 	rm -rf\
-		$(RAMFS_ROOT)/usr/lib/libgo.so.*\
-		$(RAMFS_ROOT)/usr/lib/libgphobos.so.*\
-		$(RAMFS_ROOT)/usr/lib/libstdc++.so.*\
-		$(RAMFS_ROOT)/usr/lib/libasan.so.*\
 		$(RAMFS_ROOT)/usr/lib/gconv\
-		$(RAMFS_ROOT)/usr/lib/libgdruntime.so.*\
-		$(RAMFS_ROOT)/usr/lib/libgfortran.so.*\
-		$(RAMFS_ROOT)/usr/lib/libubsan.so.*\
-		$(RAMFS_ROOT)/usr/lib/libgomp.so.*\
-		$(RAMFS_ROOT)/usr/lib/libobjc.so.*\
 		$(RAMFS_ROOT)/usr/lib/*.a\
 		$(RAMFS_ROOT)/usr/share/i18n\
 		$(RAMFS_ROOT)/usr/share/locale\
@@ -85,10 +68,36 @@ ramfs_libs: $(RAMFS_LIBS)
 		$(RAMFS_ROOT)/usr/include\
 		$(RAMFS_ROOT)/usr/bin\
 
-$(INITRAMFS): ramfs_libs $(RAMFS_ROOT)/lib $(RAMFS_ROOT)/proc $(RAMFS_ROOT)/dev $(RAMFS_ROOT)/init
-	cd $(RAMFS_ROOT) && find | cpio -ov --format=newc | gzip -9 > $@
+$(RAMFS_ROOT)/usr/lib/libasound.so: $(DL_FOLDER)/alsa.tar.xz
+	mkdir -p $(RAMFS_ROOT)
+	tar -C $(RAMFS_ROOT) --touch -xf $<
+	rm -rf\
+		$(RAMFS_ROOT)/usr/include\
+		$(RAMFS_ROOT)/usr/bin\
+
+$(RAMFS_ROOT)/usr/lib/libgcc_s.so: $(DL_FOLDER)/gcclibs.tar.xz
+	mkdir -p $(RAMFS_ROOT)
+	tar -C $(RAMFS_ROOT) --touch -xf $<
+	rm -rf\
+		$(RAMFS_ROOT)/usr/lib/libgo.so.*\
+		$(RAMFS_ROOT)/usr/lib/libgphobos.so.*\
+		$(RAMFS_ROOT)/usr/lib/libstdc++.so.*\
+		$(RAMFS_ROOT)/usr/lib/libasan.so.*\
+		$(RAMFS_ROOT)/usr/lib/libgdruntime.so.*\
+		$(RAMFS_ROOT)/usr/lib/libgfortran.so.*\
+		$(RAMFS_ROOT)/usr/lib/libubsan.so.*\
+		$(RAMFS_ROOT)/usr/lib/libgomp.so.*\
+		$(RAMFS_ROOT)/usr/lib/libobjc.so.*\
+		$(RAMFS_ROOT)/usr/share/locale\
+		$(RAMFS_ROOT)/usr/share/info\
+
+$(INITRAMFS): $(RAMFS_LIBS) $(RAMFS_ROOT)/lib $(RAMFS_ROOT)/proc $(RAMFS_ROOT)/dev $(RAMFS_ROOT)/init
+	cd $(RAMFS_ROOT) && find | cpio -ov --format=newc | gzip -9 > ../$@
 
 .PHONY: clean
 
 clean:
+	chmod -R 777 $(RAMFS_ROOT) || true
+	chmod -R 777 $(BUILD_ENV_FOLDER) || true
+	chmod -R 777 $(TOOLCHAIN_FOLDER) || true
 	rm -rf $(DL_FOLDER) $(TOOLCHAIN_FOLDER) $(RAMFS_ROOT) $(BUILD_ENV_FOLDER) $(INITRAMFS)
