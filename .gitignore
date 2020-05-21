@@ -3,4 +3,6 @@
 /download
 /ramfs_root
 /toolchain
+/linux
 initramfs-linux.img
+vmlinuz-linux

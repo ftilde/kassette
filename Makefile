@@ -4,14 +4,24 @@ DL_FOLDER=download
 TOOLCHAIN_FOLDER=toolchain
 RAMFS_ROOT=ramfs_root
 BUILD_ENV_FOLDER=build_env
-CC=$(TOOLCHAIN_FOLDER)/arm-unknown-linux-gnueabihf/bin/armv6l-unknown-linux-gnueabihf-gcc
+CROSS_COMPILE_PREFIX=$(TOOLCHAIN_FOLDER)/arm-unknown-linux-gnueabihf/bin/armv6l-unknown-linux-gnueabihf-
+CC=$(CROSS_COMPILE_PREFIX)gcc
 PACKAGE_ARCHIVES=$(DL_FOLDER)/alsa.tar.xz $(DL_FOLDER)/glibc.tar.xz $(DL_FOLDER)/gcclibs.tar.xz
 BUILD_LIBC=$(BUILD_ENV_FOLDER)/usr/lib/libc.so
 INIT=target/arm-unknown-linux-gnueabihf/debug/rfid_player
 RAMFS_LIBS=$(RAMFS_ROOT)/usr/lib/libc.so $(RAMFS_ROOT)/usr/lib/libasound.so $(RAMFS_ROOT)/usr/lib/libgcc_s.so
 INITRAMFS=initramfs-linux.img
+KERNEL_DIR=linux
+KERNEL_REPO=https://github.com/raspberrypi/linux
+KERNEL_BRANCH=rpi-4.19.y
+KERNEL=vmlinuz-linux
+NPROC=$(shell nproc)
 
-all: $(INITRAMFS)
+all: initramfs kernel
+
+initramfs: $(INITRAMFS)
+
+kernel: $(KERNEL)
 
 $(DL_FOLDER)/alsa.tar.xz:
 	mkdir -p $(DL_FOLDER)
@@ -94,10 +104,22 @@ $(RAMFS_ROOT)/usr/lib/libgcc_s.so: $(DL_FOLDER)/gcclibs.tar.xz
 $(INITRAMFS): $(RAMFS_LIBS) $(RAMFS_ROOT)/lib $(RAMFS_ROOT)/proc $(RAMFS_ROOT)/dev $(RAMFS_ROOT)/init
 	cd $(RAMFS_ROOT) && find | cpio -ov --format=newc | gzip -9 > ../$@
 
+$(KERNEL_DIR)/Makefile:
+	git clone --depth=1 --branch $(KERNEL_BRANCH) $(KERNEL_REPO) $(KERNEL_DIR)
+
+$(KERNEL_DIR)/.config: kernel_config
+	cp $< $@
+
+$(KERNEL_DIR)/arch/arm/boot/zImage: $(KERNEL_DIR)/Makefile $(KERNEL_DIR)/.config $(CC)
+	$(MAKE) -j $(NPROC) -C $(KERNEL_DIR) ARCH="arm" CROSS_COMPILE=$(shell pwd)/$(CROSS_COMPILE_PREFIX) zImage
+
+$(KERNEL): $(KERNEL_DIR)/arch/arm/boot/zImage
+	cp $< $@
+
 .PHONY: clean
 
 clean:
 	chmod -R 777 $(RAMFS_ROOT) || true
 	chmod -R 777 $(BUILD_ENV_FOLDER) || true
 	chmod -R 777 $(TOOLCHAIN_FOLDER) || true
-	rm -rf $(DL_FOLDER) $(TOOLCHAIN_FOLDER) $(RAMFS_ROOT) $(BUILD_ENV_FOLDER) $(INITRAMFS)
+	rm -rf $(DL_FOLDER) $(TOOLCHAIN_FOLDER) $(RAMFS_ROOT) $(BUILD_ENV_FOLDER) $(INITRAMFS) $(KERNEL_DIR) $(KERNEL)
