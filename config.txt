@@ -1,6 +1,6 @@
 # See /boot/overlays/README for all available options
 
-gpu_mem=64
+gpu_mem=16
 initramfs initramfs-linux.img followkernel
 kernel vmlinuz-linux
 boot_delay=0
