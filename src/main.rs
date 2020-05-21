@@ -1,50 +1,11 @@
-//use rfid_rs;
-//use spidev;
+use rfid_rs;
+use spidev;
 
-//use cpal::traits::{DeviceTrait, EventLoopTrait, HostTrait};
-//use cpal::{SampleFormat, StreamData, UnknownTypeOutputBuffer};
+use std::path::Path;
+use std::time::{Duration, Instant};
 
-//#[no_mangle]
-//pub unsafe extern "C" fn __nanosleep_time64(
-//    rqtp: *const libc::timespec,
-//    rmtp: *mut libc::timespec,
-//) -> libc::c_int {
-//    libc::nanosleep(rqtp, rmtp)
-//}
-//
-//#[no_mangle]
-//pub unsafe extern "C" fn __gettimeofday_time64(
-//    tp: *mut libc::timeval,
-//    tz: *mut core::ffi::c_void,
-//) -> libc::c_int {
-//    libc::gettimeofday(tp, tz)
-//}
-//
-//#[no_mangle]
-//pub unsafe extern "C" fn __clock_gettime64(
-//    clk_id: libc::clockid_t,
-//    tp: *mut libc::timespec,
-//) -> libc::c_int {
-//    libc::clock_gettime(clk_id, tp)
-//}
-//
-//#[no_mangle]
-//pub unsafe extern "C" fn __dlsym_time64(
-//    handle: *mut libc::c_void,
-//    symbol: *const libc::c_char,
-//) -> *mut core::ffi::c_void {
-//    libc::dlsym(handle, symbol)
-//}
-//
-//#[no_mangle]
-//pub unsafe extern "C" fn __stat_time64(
-//    path: *const libc::c_char,
-//    buf: *mut libc::stat64,
-//) -> libc::c_int {
-//    libc::stat64(path, buf)
-//}
-
-fn main() {
+/// Mounting stuff etc.
+fn general_setup() {
     let is_init = std::process::id() == 1;
 
     if is_init {
@@ -68,7 +29,10 @@ fn main() {
     } else {
         println!("Running as regular process.");
     }
+}
 
+#[allow(unused)]
+fn play_sine() {
     for card in alsa::card::Iter::new() {
         let card = card.unwrap();
         let name = card.get_name().unwrap();
@@ -136,113 +100,104 @@ fn main() {
     };
     // Wait for the stream to finish playback.
     pcm.drain().unwrap();
-
-    /*
-    let host = cpal::default_host();
-    let event_loop = host.event_loop();
-
-    println!("000000000000000000000000000000000000000000000000000000000000000000000");
-    println!("dev/snd: ");
-    for file in std::fs::read_dir("/dev/snd").unwrap() {
-        print!("{} ", file.unwrap().path().to_string_lossy());
-    }
-
-    println!("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-    println!("proc: ");
-    for file in std::fs::read_dir("/proc").unwrap() {
-        print!("{} ", file.unwrap().path().to_string_lossy());
-    }
-
-    println!("111111111111111111111111111111111111111111111111111111111111111111111");
-    let devices = host.devices().unwrap();
-    for device in devices {
-        println!("Device: {}", device.name().unwrap());
-    }
-    println!("222222222222222222222222222222222222222222222222222222222222222222222");
-
-    let device = host
-        .default_output_device()
-        .expect("no output device available");
-
-    let mut supported_formats_range = device
-        .supported_output_formats()
-        .expect("error while querying formats");
-    let mut format = supported_formats_range
-        .find(|f| f.data_type == SampleFormat::F32 && f.channels == 1)
-        .expect("no supported format?!")
-        .with_max_sample_rate();
-
-    let sample_rate = Some(44000);
-    if let Some(sample_rate) = sample_rate {
-        format.sample_rate.0 = format.sample_rate.0.min(sample_rate);
-    }
-    println!("Format: {:?}", format);
-    let sample_rate = format.sample_rate.0;
-
-    let stream_id = event_loop.build_output_stream(&device, &format).unwrap();
-
-    event_loop.play_stream(stream_id).unwrap();
-
-    let thread = std::thread::Builder::new()
-        .name("renderer".to_owned())
-        .spawn(move || {
-            let mut samples = (0..)
-                .into_iter()
-                .map(|s| (s as f32 * 440.0 * 2.0 * 3.141592654 / sample_rate as f32).sin());
-            event_loop.run(move |_stream_id, stream_data| {
-                if let StreamData::Output {
-                    buffer: UnknownTypeOutputBuffer::F32(mut fbuffer),
-                } = stream_data.unwrap()
-                {
-                    for elm in fbuffer.iter_mut() {
-                        *elm = samples.next().unwrap();
-                    }
-                } else {
-                    panic!("Invalid format");
-                }
-            });
-        })
-        .unwrap();
-
-    thread.join().unwrap();
-    */
 }
 
-//fn main() {
-//    let mut spi = spidev::Spidev::open("/dev/spidev0.0").unwrap();
-//
-//    let mut options = spidev::SpidevOptions::new();
-//    let options = options.max_speed_hz(1_000_000);
-//    let options = options.mode(spidev::SpiModeFlags::SPI_MODE_0);
-//    spi.configure(&options).unwrap();
-//
-//    let mut mrfc = rfid_rs::MFRC522 { spi };
-//
-//    println!("Foo");
-//    mrfc.init().unwrap();
-//    println!("Bar");
-//    //mrfc.enable_antenna().unwrap();
-//    loop {
-//        match mrfc.request_a(2) {
-//            Err(rfid_rs::Error::Timeout) => {
-//                println!("Wakeup: Timeout...");
-//                continue;
-//            }
-//            Err(o) => {
-//                panic!("Wakeup: Other error: {:?}", o);
-//            }
-//            Ok(_) => match mrfc.read_card_serial() {
-//                Ok(serial) => {
-//                    println!("serial: {:?}", serial);
-//                    break;
-//                }
-//                Err(rfid_rs::Error::Timeout) => {
-//                    println!("Read: Timeout");
-//                }
-//                Err(o) => {
-//                    panic!("Read: Other error: {:?}", o);
-//                }
-//            },
-//        }
-//    }
-//}
+#[derive(Copy, Clone, Debug)]
+struct Uid(u64);
+
+impl From<rfid_rs::Uid> for Uid {
+    fn from(other: rfid_rs::Uid) -> Self {
+        let mut val = 0;
+        for b in other.bytes {
+            val += b as u64;
+            val = val << 8;
+        }
+        Uid(val)
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+enum RfidEvent {
+    Removed,
+    Added(Uid),
+}
+
+struct RfidReader {
+    mfrc: rfid_rs::MFRC522,
+}
+
+impl RfidReader {
+    fn new(device_path: impl AsRef<Path>) -> Result<Self, rfid_rs::Error> {
+        let mut spi = spidev::Spidev::open(device_path)?;
+
+        let mut options = spidev::SpidevOptions::new();
+        let options = options.max_speed_hz(1_000_000);
+        let options = options.mode(spidev::SpiModeFlags::SPI_MODE_0);
+        spi.configure(&options)?;
+
+        let mut mfrc = rfid_rs::MFRC522 { spi };
+
+        mfrc.init()?;
+
+        Ok(RfidReader { mfrc })
+    }
+
+    fn read_uid(&mut self, timeout: Duration) -> Option<Uid> {
+        let start = Instant::now();
+        while start.elapsed() < timeout {
+            match self.mfrc.request_a(2) {
+                Err(rfid_rs::Error::Timeout) => {
+                    //println!("Wakeup: Timeout...");
+                }
+                Err(rfid_rs::Error::Communication) => {
+                    //eprintln!("Read: communication error");
+                }
+                Err(o) => {
+                    eprintln!("Wakeup: Other error: {:?}", o);
+                }
+                Ok(_) => match self.mfrc.read_card_serial() {
+                    Ok(serial) => {
+                        return Some(serial.into());
+                    }
+                    Err(rfid_rs::Error::Timeout) => {
+                        //println!("Read: Timeout");
+                    }
+                    Err(rfid_rs::Error::Communication) => {
+                        eprintln!("Read: communication error");
+                    }
+                    Err(o) => {
+                        eprintln!("Read: Other error: {:?}", o);
+                    }
+                },
+            }
+        }
+        None
+    }
+
+    fn events(&mut self, check_interval: Duration) -> impl Iterator<Item = RfidEvent> + '_ {
+        let mut previous = None;
+        std::iter::from_fn(move || loop {
+            match (self.read_uid(check_interval), previous) {
+                (Some(uid), None) => {
+                    previous = Some(uid.clone());
+                    return Some(RfidEvent::Added(uid));
+                }
+                (None, Some(_)) => {
+                    previous = None;
+                    return Some(RfidEvent::Removed);
+                }
+                _ => {}
+            }
+        })
+    }
+}
+
+fn main() {
+    general_setup();
+
+    let mut rfid_reader = RfidReader::new("/dev/spidev0.0").unwrap();
+
+    for e in rfid_reader.events(Duration::from_millis(50)) {
+        println!("Event: {:0x?}", e);
+    }
+}

@@ -94,8 +94,6 @@ checksum = "05da548ad6865900e60eaba7f589cc0783590a92e940c26953ff81ddbab2d677"
 [[package]]
 name = "rfid-rs"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8801ac7520da00e6a55f0249d2a846d8714fe1dc19cc0d1b664409a54fb3d28b"
 dependencies = [
  "spidev",
 ]
