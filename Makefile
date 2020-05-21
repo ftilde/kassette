@@ -16,12 +16,22 @@ KERNEL_REPO=https://github.com/raspberrypi/linux
 KERNEL_BRANCH=rpi-4.19.y
 KERNEL=vmlinuz-linux
 NPROC=$(shell nproc)
+RPI_CONFIG=config.txt
+
+SCP_TARGET=alarm@10.0.0.13:
+BOOT_MOUNT=/media/sdf1-usb-Generic_STORAGE_/
 
 all: initramfs kernel
 
 initramfs: $(INITRAMFS)
 
 kernel: $(KERNEL)
+
+scp: $(INIT)
+	scp $< $(SCP_TARGET)
+
+sd: $(INITRAMFS) $(KERNEL) $(RPI_CONFIG)
+	cp $^ $(BOOT_MOUNT)
 
 $(DL_FOLDER)/alsa.tar.xz:
 	mkdir -p $(DL_FOLDER)
@@ -116,7 +126,7 @@ $(KERNEL_DIR)/arch/arm/boot/zImage: $(KERNEL_DIR)/Makefile $(KERNEL_DIR)/.config
 $(KERNEL): $(KERNEL_DIR)/arch/arm/boot/zImage
 	cp $< $@
 
-.PHONY: clean
+.PHONY: clean all kernel initramfs scp sd
 
 clean:
 	chmod -R 777 $(RAMFS_ROOT) || true
