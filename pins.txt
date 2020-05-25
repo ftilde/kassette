@@ -1,0 +1,34 @@
+                          Raspberry Pi (from A+/B+)
+                     +3V3  1         | 1|            +5V
+                     SDA1 / GPIO  2  | 2|            +5V
+                     SCL1 / GPIO  3  | 3|         GND  6
+                     GPIO  4         | 4| GPIO 14 / TXD0
+                     GND  9          | 5| GPIO 15 / RXD0
+                     GPIO 17         | 6|        GPIO 18
+                     GPIO 27         | 7|         GND 14
+                     GPIO 22         | 8|        GPIO 23
+RFID 3V3  <-yellow-> +3V3 17         | 9|        GPIO 24
+RFID MOSI <-orange-> MOSI / GPIO 10  |10|         GND 20 <-purple-> RFID GND
+RFID MISO <--red---> MISO / GPIO  9  |11|        GPIO 25 <--blue--> RFID RST
+RFID SCK  <-brown--> SCLK / GPIO 11  |12| GPIO  8 / CE0# <-green--> RFID SDA
+                     GND 25          |13| GPIO  7 / CE1#
+                     ID_SD / GPIO  0 |14| GPIO 1 / ID_SC
+                     GPIO  5         |15|         GND 30
+                     GPIO  6         |16|        GPIO 12
+                     GPIO 13         |17|         GND 34
+                     MISO / GPIO 19  |18| GPIO 16 / CE2#
+                     GPIO 26         |19| GPIO 20 / MOSI
+                     GND 39          |20| GPIO 21 / SCLK
+
+
+
+
+PI                      RFID-RC522
+GPIO 8/CE0   <-green--> SDA
+SCLK/GPIO 11 <-brown--> SCK
+MOSI/GPIO 10 <-orange-> MOSI
+MISO/GPIO  9 <--red---> MISO
+NOTHING                 IRQ
+GND 20       <-purple-> GND
+GPIO 25      <--blue--> RST
++3V3 17      <-yellow-> +3V3
