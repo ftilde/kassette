@@ -2,7 +2,7 @@ use rfid_rs;
 use spidev;
 
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Mounting stuff etc.
 fn general_setup() {
@@ -47,20 +47,20 @@ impl AudioOutput {
             );
         }
         let mixer = alsa::mixer::Mixer::new("hw:0", false).unwrap();
-        println!("Mixer: {:?}", mixer);
+        //println!("Mixer: {:?}", mixer);
         for elm in mixer.iter() {
-            println!("MixerElm: {:?}", elm);
+            //println!("MixerElm: {:?}", elm);
             let selm = alsa::mixer::Selem::new(elm).unwrap();
-            dbg!(selm.has_volume());
-            dbg!(selm.can_playback());
-            dbg!(selm.can_playback());
-            let channelid = alsa::mixer::SelemChannelId::mono();
-            dbg!(selm.get_playback_volume(channelid).unwrap());
-            dbg!(selm.get_playback_vol_db(channelid).unwrap());
+            //dbg!(selm.has_volume());
+            //dbg!(selm.can_playback());
+            //dbg!(selm.can_playback());
+            //let channelid = alsa::mixer::SelemChannelId::mono();
+            //dbg!(selm.get_playback_volume(channelid).unwrap());
+            //dbg!(selm.get_playback_vol_db(channelid).unwrap());
             let (_, maxvol) = selm.get_playback_volume_range();
             selm.set_playback_volume_all(maxvol).unwrap();
-            dbg!(selm.get_playback_volume(channelid).unwrap());
-            dbg!(selm.get_playback_vol_db(channelid).unwrap());
+            //dbg!(selm.get_playback_volume(channelid).unwrap());
+            //dbg!(selm.get_playback_vol_db(channelid).unwrap());
         }
 
         use alsa::pcm::{Access, Format, HwParams, PCM};
@@ -71,8 +71,9 @@ impl AudioOutput {
 
         // Set hardware parameters: 44100 Hz / Mono / 16 bit
         {
+            // TODO: try to supporting setting this for media files?
             let hwp = HwParams::any(&pcm).unwrap();
-            hwp.set_channels(1).unwrap();
+            hwp.set_channels(2).unwrap();
             hwp.set_rate(44100, ValueOr::Nearest).unwrap();
             hwp.set_format(Format::s16()).unwrap();
             hwp.set_access(Access::RWInterleaved).unwrap();
@@ -94,17 +95,25 @@ impl AudioOutput {
     }
 
     fn play_buf(&self, buf: &[i16]) {
-        use alsa::pcm::State;
-
         let io = self.pcm.io_i16().unwrap();
 
-        let pre = std::time::Instant::now();
-        assert_eq!(io.writei(&buf[..]).unwrap(), buf.len());
-        eprintln!("Write: {:?}", pre.elapsed());
+        //let pre = std::time::Instant::now();
+        let num_channels = 2;
+        match io.writei(&buf[..]) {
+            Ok(frames) => {
+                assert_eq!(frames, buf.len() / num_channels);
+                //eprintln!("Write: {:?}", pre.elapsed());
+            }
+            Err(e) => {
+                eprintln!("OI Error: {:?}", e);
+                self.pcm.try_recover(e, false).unwrap();
+            }
+        }
 
-        if self.pcm.state() != State::Running {
-            self.pcm.start().unwrap()
-        };
+        //use alsa::pcm::State;
+        //if self.pcm.state() != State::Running {
+        //    self.pcm.start().unwrap()
+        //};
     }
 
     /// Wait for the stream to finish playback.
@@ -113,20 +122,33 @@ impl AudioOutput {
     }
 }
 
-fn play_sine() {
+use lewton::inside_ogg::OggStreamReader;
+
+fn play_file(file_path: impl AsRef<Path>) {
+    let f = std::fs::File::open(file_path).expect("Can't open file");
+
+    // Prepare the reading
+    let mut srr = OggStreamReader::new(f).unwrap();
+
+    // Prepare the playback.
+    println!("Sample rate: {}", srr.ident_hdr.audio_sample_rate);
+
+    let n_channels = srr.ident_hdr.audio_channels as usize;
+    assert_eq!(n_channels, 2, "We require 2 channels for now");
+
     let out = AudioOutput::new();
 
-    // Make a sine wave
-    let mut buf = [0i16; 2 * 1024];
-    for (i, a) in buf.iter_mut().enumerate() {
-        *a = ((i as f32 * 2.0 * ::std::f32::consts::PI / 128.0).sin() * 8192.0) as i16
-    }
-
-    let secs = 2;
-
-    // Play it back for `secs` seconds.
-    for _ in 0..secs * 44100 / buf.len() {
-        out.play_buf(&buf);
+    //let mut n = 0;
+    while let Some(pck_samples) = srr.read_dec_packet_itl().unwrap() {
+        //println!(
+        //    "Decoded packet no {}, with {} samples.",
+        //    n,
+        //    pck_samples.len()
+        //);
+        //n += 1;
+        if pck_samples.len() > 0 {
+            out.play_buf(&pck_samples);
+        }
     }
 
     out.drain();
@@ -172,9 +194,9 @@ impl RfidReader {
         Ok(RfidReader { mfrc })
     }
 
-    fn read_uid(&mut self, timeout: Duration) -> Option<Uid> {
-        let start = Instant::now();
-        while start.elapsed() < timeout {
+    fn read_uid(&mut self) -> Option<Uid> {
+        let max_tries = 10; //TODO: not sure if this is a proper amount, yet!
+        for _ in 0..max_tries {
             match self.mfrc.request_a(2) {
                 Err(rfid_rs::Error::Timeout) => {
                     //println!("Wakeup: Timeout...");
@@ -206,8 +228,17 @@ impl RfidReader {
 
     fn events(&mut self, check_interval: Duration) -> impl Iterator<Item = RfidEvent> + '_ {
         let mut previous = None;
+        let mut previous_time = std::time::Instant::now();
         std::iter::from_fn(move || loop {
-            match (self.read_uid(check_interval), previous) {
+            let elapsed = previous_time.elapsed();
+            if elapsed < check_interval {
+                let wait_time = check_interval - elapsed;
+                eprintln!("RFID waiting: {:?}", wait_time);
+                std::thread::sleep(wait_time);
+            }
+            previous_time = std::time::Instant::now();
+            eprintln!("Trying to read..., (elapsed {:?})", elapsed);
+            match (self.read_uid(), previous) {
                 (Some(uid), None) => {
                     previous = Some(uid.clone());
                     return Some(RfidEvent::Added(uid));
@@ -227,11 +258,13 @@ fn main() {
 
     let mut rfid_reader = RfidReader::new("/dev/spidev0.0").unwrap();
 
-    let _ = std::thread::spawn(move || {
-        for e in rfid_reader.events(Duration::from_millis(50)) {
-            println!("Event: {:0x?}", e);
-        }
-    });
+    let _ = std::thread::Builder::new()
+        .name("card_event_thread".to_owned())
+        .spawn(move || {
+            for e in rfid_reader.events(Duration::from_millis(500)) {
+                println!("Event: {:0x?}", e);
+            }
+        });
 
-    play_sine();
+    play_file("./mcd.ogg");
 }

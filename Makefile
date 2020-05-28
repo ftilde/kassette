@@ -17,10 +17,10 @@ KERNEL=vmlinuz-linux
 NPROC=$(shell nproc)
 RPI_CONFIG=config.txt
 
-CARGO_FLAGS=
-INIT=target/arm-unknown-linux-gnueabihf/debug/kassette
-#CARGO_FLAGS=--release
-#INIT=target/arm-unknown-linux-gnueabihf/release/kassette
+#CARGO_FLAGS=
+#INIT=target/arm-unknown-linux-gnueabihf/debug/kassette
+CARGO_FLAGS=--release
+INIT=target/arm-unknown-linux-gnueabihf/release/kassette
 
 SCP_TARGET=alarm@10.0.0.13:
 BOOT_MOUNT=/media/sdf1-usb-Generic_STORAGE_/
