@@ -8,7 +8,6 @@ CROSS_COMPILE_PREFIX=$(TOOLCHAIN_FOLDER)/arm-unknown-linux-gnueabihf/bin/armv6l-
 CC=$(CROSS_COMPILE_PREFIX)gcc
 PACKAGE_ARCHIVES=$(DL_FOLDER)/alsa.tar.xz $(DL_FOLDER)/glibc.tar.xz $(DL_FOLDER)/gcclibs.tar.xz
 BUILD_LIBC=$(BUILD_ENV_FOLDER)/usr/lib/libc.so
-INIT=target/arm-unknown-linux-gnueabihf/debug/rfid_player
 RAMFS_LIBS=$(RAMFS_ROOT)/usr/lib/libc.so $(RAMFS_ROOT)/usr/lib/libasound.so $(RAMFS_ROOT)/usr/lib/libgcc_s.so
 INITRAMFS=initramfs-linux.img
 KERNEL_DIR=linux
@@ -17,6 +16,11 @@ KERNEL_BRANCH=rpi-4.19.y
 KERNEL=vmlinuz-linux
 NPROC=$(shell nproc)
 RPI_CONFIG=config.txt
+
+CARGO_FLAGS=
+INIT=target/arm-unknown-linux-gnueabihf/debug/kassette
+#CARGO_FLAGS=--release
+#INIT=target/arm-unknown-linux-gnueabihf/release/kassette
 
 SCP_TARGET=alarm@10.0.0.13:
 BOOT_MOUNT=/media/sdf1-usb-Generic_STORAGE_/
@@ -60,8 +64,8 @@ $(BUILD_LIBC): $(PACKAGE_ARCHIVES)
 	for archive in $^; do tar -C $(BUILD_ENV_FOLDER) -xf $$archive; done
 	sed -i "s#/usr/#$(BUILD_ENV_FOLDER)/usr/#g" $(BUILD_LIBC)
 
-$(INIT): $(BUILD_LIBC) $(CC)
-	PKG_CONFIG_ALLOW_CROSS=1 cargo build
+$(INIT): $(BUILD_LIBC) $(CC) src/main.rs
+	PKG_CONFIG_ALLOW_CROSS=1 cargo build $(CARGO_FLAGS)
 
 $(RAMFS_ROOT)/lib:
 	mkdir -p $(RAMFS_ROOT)

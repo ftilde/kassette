@@ -1,5 +1,5 @@
 [package]
-name = "rfid_player"
+name = "kassette"
 version = "0.1.0"
 authors = ["ftilde <ftilde@protonmail.com>"]
 edition = "2018"
@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 #rfid-rs = "0.1.1"
-rfid-rs = { path = "../../rfid-rs" }
+rfid-rs = { path = "../rfid-rs" }
 spidev = "0.4"
 #wavy = { path = "../wavy/" }
 #cpal = "0.11"
