@@ -4,7 +4,7 @@
                      SCL1 / GPIO  3  | 3|         GND  6
                      GPIO  4         | 4| GPIO 14 / TXD0
                      GND  9          | 5| GPIO 15 / RXD0
-                     GPIO 17         | 6|        GPIO 18
+                     GPIO 17         | 6|        GPIO 18 <--------> Miniamp
                      GPIO 27         | 7|         GND 14
                      GPIO 22         | 8|        GPIO 23
 RFID 3V3  <-yellow-> +3V3 17         | 9|        GPIO 24 <--grey--> RFID IRQ
@@ -16,9 +16,9 @@ RFID SCK  <-brown--> SCLK / GPIO 11  |12| GPIO  8 / CE0# <-green--> RFID SDA
                      GPIO  5         |15|         GND 30
                      GPIO  6         |16|        GPIO 12
                      GPIO 13         |17|         GND 34
-                     MISO / GPIO 19  |18| GPIO 16 / CE2#
-                     GPIO 26         |19| GPIO 20 / MOSI
-                     GND 39          |20| GPIO 21 / SCLK
+Miniamp   <--------> MISO / GPIO 19  |18| GPIO 16 / CE2# <--------> Miniamp (mute)
+ "  (off) <--------> GPIO 26         |19| GPIO 20 / MOSI <--------> Miniamp
+                     GND 39          |20| GPIO 21 / SCLK <--------> Miniamp
 
 
 
