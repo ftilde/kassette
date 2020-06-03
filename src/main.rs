@@ -175,6 +175,31 @@ enum RfidEvent {
     Added(Uid),
 }
 
+#[derive(Debug)]
+enum RfIdError {
+    Rfid(rfid_rs::Error),
+    //Io(std::io::Error),
+    Gpio(rppal::gpio::Error),
+}
+
+impl From<rfid_rs::Error> for RfIdError {
+    fn from(error: rfid_rs::Error) -> Self {
+        RfIdError::Rfid(error)
+    }
+}
+
+impl From<rppal::gpio::Error> for RfIdError {
+    fn from(error: rppal::gpio::Error) -> Self {
+        RfIdError::Gpio(error)
+    }
+}
+
+//impl From<std::io::Error> for RfIdError {
+//    fn from(error: std::io::Error) -> Self {
+//        RfIdError::Io(error)
+//    }
+//}
+
 const RFID_INTERRUPT_PIN: u8 = 24;
 
 struct RfidReader {
@@ -195,7 +220,7 @@ impl RfidReader {
 
         mfrc.init()?;
 
-        let interrupt_pin = gpio.get(RFID_INTERRUPT_PIN).unwrap().into_input();
+        let interrupt_pin = gpio.get(RFID_INTERRUPT_PIN).unwrap().into_input_pullup();
 
         Ok(RfidReader {
             mfrc,
@@ -235,53 +260,71 @@ impl RfidReader {
         None
     }
 
-    fn clear_interrupts(&mut self) {
+    fn check_card_present(&mut self, check_timeout: Duration) -> Result<bool, RfIdError> {
+        self.mfrc.init()?;
+
+        // Clear previous interrupt bits
         self.mfrc
-            .write_register(rfid_rs::Register::ComIrqReg, 0x80)
-            .unwrap(); // clear interrupts
+            .write_register(rfid_rs::Register::ComIrqReg, 0x00)?;
+
+        // Enable Rx interrupt and invert IRQ (i.e., we wait for low)
+        self.mfrc
+            .write_register(rfid_rs::Register::ComlEnReg, 0b1010_0000)?;
+
+        // Write 0x26 (Request for card activation) to fifo buffer
+        self.mfrc
+            .write_register(rfid_rs::Register::FIFODataReg, 0x26)?;
+
+        // Issue transmission of Card activation request
+        self.mfrc.write_register(
+            rfid_rs::Register::CommandReg,
+            rfid_rs::Command::Transceive as _,
+        )?;
+        // Describe transmission (start transmission of 7 bits (i.e., 0x26))
+        self.mfrc
+            .write_register(rfid_rs::Register::BitFramingReg, 0b1_000_0_111)?;
+
+        // Wait for interrupt to get low (i.e., Rx event, see above)
+        self.interrupt_pin
+            .set_interrupt(rppal::gpio::Trigger::FallingEdge)?;
+        if let Some(rppal::gpio::Level::Low) = self
+            .interrupt_pin
+            .poll_interrupt(true, Some(check_timeout))?
+        {
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
     fn events(&mut self, check_timeout: Duration) -> impl Iterator<Item = RfidEvent> + '_ {
         let mut previous = None;
         let mut previous_time = std::time::Instant::now();
-        self.clear_interrupts();
-
-        self.mfrc
-            .write_register(rfid_rs::Register::ComlEnReg, 0x7f)
-            .unwrap(); // enable interrupts
-        self.mfrc
-            .write_register(rfid_rs::Register::DivlEnReg, 0x14)
-            .unwrap(); // ???
 
         std::iter::from_fn(move || loop {
-            self.clear_interrupts();
-            self.interrupt_pin
-                .set_interrupt(rppal::gpio::Trigger::RisingEdge)
-                .unwrap();
-            if self
-                .interrupt_pin
-                .poll_interrupt(true, Some(check_timeout))
-                .unwrap()
-                .is_some()
-            {
-                println!("Interrupt!");
+            let elapsed = previous_time.elapsed();
+            if elapsed < check_timeout {
+                let wait_time = check_timeout - elapsed;
+                std::thread::sleep(wait_time);
             }
-            //let elapsed = previous_time.elapsed();
-            //if elapsed < check_interval {
-            //    let wait_time = check_interval - elapsed;
-            //    //eprintln!("RFID waiting: {:?}", wait_time);
-            //    std::thread::sleep(wait_time);
-            //}
-            //previous_time = std::time::Instant::now();
-            //eprintln!("Trying to read..., (elapsed {:?})", elapsed);
-            match (self.read_uid(), previous) {
-                (Some(uid), None) => {
-                    previous = Some(uid.clone());
-                    return Some(RfidEvent::Added(uid));
+            previous_time = std::time::Instant::now();
+
+            let present = loop {
+                if let Ok(val) = self.check_card_present(check_timeout) {
+                    break val;
                 }
-                (None, Some(_)) => {
+            };
+
+            match (previous, present) {
+                (Some(_), false) => {
                     previous = None;
                     return Some(RfidEvent::Removed);
+                }
+                (None, true) => {
+                    if let Some(uid) = self.read_uid() {
+                        previous = Some(uid.clone());
+                        return Some(RfidEvent::Added(uid));
+                    }
                 }
                 _ => {}
             }
@@ -298,13 +341,13 @@ fn main() {
     let rfid_thread = std::thread::Builder::new()
         .name("card_event_thread".to_owned())
         .spawn(move || {
-            for e in rfid_reader.events(Duration::from_millis(500)) {
+            for e in rfid_reader.events(Duration::from_millis(100)) {
                 println!("Event: {:0x?}", e);
             }
         })
         .unwrap();
 
-    play_file("./mcd.ogg");
+    //play_file("./mcd.ogg");
 
     rfid_thread.join().unwrap();
 }
