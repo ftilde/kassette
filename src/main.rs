@@ -5,6 +5,8 @@ use spidev;
 use std::path::Path;
 use std::time::Duration;
 
+mod pins;
+
 /// Mounting stuff etc.
 fn general_setup() {
     let is_init = std::process::id() == 1;
@@ -200,8 +202,6 @@ impl From<rppal::gpio::Error> for RfIdError {
 //    }
 //}
 
-const RFID_INTERRUPT_PIN: u8 = 24;
-
 struct RfidReader {
     mfrc: rfid_rs::MFRC522,
     interrupt_pin: InputPin,
@@ -220,7 +220,7 @@ impl RfidReader {
 
         mfrc.init()?;
 
-        let interrupt_pin = gpio.get(RFID_INTERRUPT_PIN).unwrap().into_input_pullup();
+        let interrupt_pin = gpio.get(pins::RFID_INTERRUPT).unwrap().into_input_pullup();
 
         Ok(RfidReader {
             mfrc,
@@ -332,6 +332,62 @@ impl RfidReader {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+enum RotaryEncoderEvent {
+    TurnLeft,
+    TurnRight,
+}
+
+struct RotaryEncoder {
+    event_pin: InputPin,
+    direction_pin: InputPin,
+}
+
+impl RotaryEncoder {
+    fn new(gpio: &Gpio) -> Result<Self, rfid_rs::Error> {
+        let event_pin = gpio.get(pins::ROTARY_ENCODER_EVENT).unwrap().into_input();
+        let direction_pin = gpio
+            .get(pins::ROTARY_ENCODER_DIRECTION)
+            .unwrap()
+            .into_input();
+
+        Ok(RotaryEncoder {
+            event_pin,
+            direction_pin,
+        })
+    }
+
+    fn wait_for_event(&mut self) -> Result<(), rppal::gpio::Error> {
+        loop {
+            self.event_pin
+                .set_interrupt(rppal::gpio::Trigger::FallingEdge)?;
+            if let Some(rppal::gpio::Level::Low) = self.event_pin.poll_interrupt(true, None)? {
+                return Ok(());
+            }
+        }
+    }
+
+    fn events(&mut self, debounce_time: Duration) -> impl Iterator<Item = RotaryEncoderEvent> + '_ {
+        let mut previous_time = std::time::Instant::now();
+
+        std::iter::from_fn(move || loop {
+            if self.wait_for_event().is_err() {
+                continue;
+            }
+            let elapsed = previous_time.elapsed();
+            if elapsed < debounce_time {
+                continue;
+            }
+            previous_time = std::time::Instant::now();
+
+            match self.direction_pin.read() {
+                rppal::gpio::Level::Low => break Some(RotaryEncoderEvent::TurnLeft),
+                rppal::gpio::Level::High => break Some(RotaryEncoderEvent::TurnRight),
+            }
+        })
+    }
+}
+
 fn main() {
     general_setup();
 
@@ -347,7 +403,18 @@ fn main() {
         })
         .unwrap();
 
-    //play_file("./mcd.ogg");
+    let mut rotary_encoder = RotaryEncoder::new(&gpio).unwrap();
 
-    rfid_thread.join().unwrap();
+    let _ = std::thread::Builder::new()
+        .name("card_event_thread".to_owned())
+        .spawn(move || {
+            for e in rotary_encoder.events(Duration::from_millis(25)) {
+                println!("Event: {:0x?}", e);
+            }
+        })
+        .unwrap();
+
+    play_file("./mcd.ogg");
+
+    rfid_thread.join().unwrap(); //TODO this will never happen!
 }

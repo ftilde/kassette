@@ -22,7 +22,7 @@ RPI_CONFIG=config.txt
 CARGO_FLAGS=--release
 INIT=target/arm-unknown-linux-gnueabihf/release/kassette
 
-SCP_TARGET=alarm@10.0.0.13:
+SCP_TARGET=alarm@10.0.0.11:
 BOOT_MOUNT=/media/sdf1-usb-Generic_STORAGE_/
 
 all: initramfs kernel
