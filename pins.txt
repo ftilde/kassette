@@ -5,7 +5,7 @@ KY DT     <-purple-> SCL1 / GPIO  3  | 3|         GND  6
 KY CLK    <-blue---> GPIO  4         | 4| GPIO 14 / TXD0
 KY GND    <-black--> GND  9          | 5| GPIO 15 / RXD0
                      GPIO 17         | 6|        GPIO 18 <--------> Miniamp
-                     GPIO 27         | 7|         GND 14
+LED 3V3   <-green--> GPIO 27         | 7|         GND 14 <-yellow-> LED GND
                      GPIO 22         | 8|        GPIO 23
 RFID 3V3  <-yellow-> +3V3 17         | 9|        GPIO 24 <--grey--> RFID IRQ
 RFID MOSI <-orange-> MOSI / GPIO 10  |10|         GND 20 <-purple-> RFID GND
@@ -40,3 +40,7 @@ GPIO 3/SCL1  <-purple-> DT
 GPIO 2/SDA1  <-grey---> SW
 +3v3 1       <-white--> +
 GND 9        <-black--> GND
+
+Pi                      LED
+GPIO 27      <-green--> 3V3
+GND 14       <-yellow-> GND

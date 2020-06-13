@@ -1,8 +1,9 @@
 use rfid_rs;
-use rppal::gpio::{Gpio, InputPin};
+use rppal::gpio::{Gpio, InputPin, OutputPin};
 use spidev;
 
 use std::path::Path;
+use std::sync::mpsc;
 use std::time::Duration;
 
 mod pins;
@@ -344,7 +345,7 @@ struct RotaryEncoder {
 }
 
 impl RotaryEncoder {
-    fn new(gpio: &Gpio) -> Result<Self, rfid_rs::Error> {
+    fn new(gpio: &Gpio) -> Result<Self, rppal::gpio::Error> {
         let event_pin = gpio.get(pins::ROTARY_ENCODER_EVENT).unwrap().into_input();
         let direction_pin = gpio
             .get(pins::ROTARY_ENCODER_DIRECTION)
@@ -388,6 +389,40 @@ impl RotaryEncoder {
     }
 }
 
+struct Led {
+    output_pin: OutputPin,
+}
+
+enum LedCommand {
+    Blink(Duration),
+}
+
+impl Led {
+    fn new(gpio: &Gpio) -> Result<Self, rppal::gpio::Error> {
+        let output_pin = gpio.get(pins::LED_OUTPUT_PIN).unwrap().into_output();
+
+        Ok(Led { output_pin })
+    }
+
+    fn on(&mut self) {
+        self.output_pin.set_high();
+    }
+
+    fn off(&mut self) {
+        self.output_pin.set_low();
+    }
+
+    fn execute(&mut self, cmd: LedCommand) {
+        match cmd {
+            LedCommand::Blink(len) => {
+                self.on();
+                std::thread::sleep(len);
+                self.off();
+            }
+        }
+    }
+}
+
 fn main() {
     general_setup();
 
@@ -406,12 +441,29 @@ fn main() {
     let mut rotary_encoder = RotaryEncoder::new(&gpio).unwrap();
 
     let _ = std::thread::Builder::new()
-        .name("card_event_thread".to_owned())
+        .name("rotary_encoder_thread".to_owned())
         .spawn(move || {
             for e in rotary_encoder.events(Duration::from_millis(25)) {
                 println!("Event: {:0x?}", e);
             }
         })
+        .unwrap();
+
+    let mut led = Led::new(&gpio).unwrap();
+
+    let (led_cmd_sink, led_cmd_source) = mpsc::channel();
+
+    let _ = std::thread::Builder::new()
+        .name("led_thread".to_owned())
+        .spawn(move || {
+            while let Ok(cmd) = led_cmd_source.recv() {
+                led.execute(cmd);
+            }
+        })
+        .unwrap();
+
+    led_cmd_sink
+        .send(LedCommand::Blink(Duration::from_millis(500)))
         .unwrap();
 
     play_file("./mcd.ogg");
