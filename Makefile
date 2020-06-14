@@ -64,7 +64,7 @@ $(BUILD_LIBC): $(PACKAGE_ARCHIVES)
 	for archive in $^; do tar -C $(BUILD_ENV_FOLDER) -xf $$archive; done
 	sed -i "s#/usr/#$(BUILD_ENV_FOLDER)/usr/#g" $(BUILD_LIBC)
 
-$(INIT): $(BUILD_LIBC) $(CC) src/main.rs
+$(INIT): $(BUILD_LIBC) $(CC) src/*.rs
 	PKG_CONFIG_ALLOW_CROSS=1 cargo build $(CARGO_FLAGS)
 
 $(RAMFS_ROOT)/lib:

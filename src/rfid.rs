@@ -1,8 +1,9 @@
 use rfid_rs;
-use rppal::gpio::{InputPin, Pin};
+use rppal::gpio::{InputPin, Level, Pin};
 use spidev;
 
 use std::path::Path;
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use std::time::Duration;
 
 #[derive(Copy, Clone, Debug)]
@@ -28,7 +29,7 @@ pub enum RfidEvent {
 #[derive(Debug)]
 pub enum RfIdError {
     Rfid(rfid_rs::Error),
-    //Io(std::io::Error),
+    Io(std::io::Error),
     Gpio(rppal::gpio::Error),
 }
 
@@ -44,19 +45,20 @@ impl From<rppal::gpio::Error> for RfIdError {
     }
 }
 
-//impl From<std::io::Error> for RfIdError {
-//    fn from(error: std::io::Error) -> Self {
-//        RfIdError::Io(error)
-//    }
-//}
+impl From<std::io::Error> for RfIdError {
+    fn from(error: std::io::Error) -> Self {
+        RfIdError::Io(error)
+    }
+}
 
 pub struct RfidReader {
     mfrc: rfid_rs::MFRC522,
-    interrupt_pin: InputPin,
+    _interrupt_pin: InputPin,
+    interrupts: Receiver<()>,
 }
 
 impl RfidReader {
-    pub fn new(device_path: impl AsRef<Path>, interrupt_pin: Pin) -> Result<Self, rfid_rs::Error> {
+    pub fn new(device_path: impl AsRef<Path>, interrupt_pin: Pin) -> Result<Self, RfIdError> {
         let mut spi = spidev::Spidev::open(device_path)?;
 
         let mut options = spidev::SpidevOptions::new();
@@ -68,11 +70,21 @@ impl RfidReader {
 
         mfrc.init()?;
 
-        let interrupt_pin = interrupt_pin.into_input_pullup();
+        let mut interrupt_pin = interrupt_pin.into_input_pullup();
+
+        let (sink, source) = channel();
+
+        interrupt_pin.set_async_interrupt(rppal::gpio::Trigger::FallingEdge, move |level| {
+            if level != Level::Low {
+                return;
+            }
+            sink.send(()).unwrap();
+        })?;
 
         Ok(RfidReader {
             mfrc,
-            interrupt_pin,
+            _interrupt_pin: interrupt_pin,
+            interrupts: source,
         })
     }
 
@@ -133,15 +145,10 @@ impl RfidReader {
             .write_register(rfid_rs::Register::BitFramingReg, 0b1_000_0_111)?;
 
         // Wait for interrupt to get low (i.e., Rx event, see above)
-        self.interrupt_pin
-            .set_interrupt(rppal::gpio::Trigger::FallingEdge)?;
-        if let Some(rppal::gpio::Level::Low) = self
-            .interrupt_pin
-            .poll_interrupt(true, Some(check_timeout))?
-        {
-            Ok(true)
-        } else {
-            Ok(false)
+        match self.interrupts.recv_timeout(check_timeout) {
+            Ok(()) => Ok(true),
+            Err(RecvTimeoutError::Timeout) => Ok(false),
+            Err(_) => panic!("Channel should only be dropped on object destruction!"),
         }
     }
 
