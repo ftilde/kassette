@@ -77,16 +77,15 @@ impl AudioOutput {
             }
         }
 
-        // TODO remove this to reduce play delay (we don't HAVE to fill the entire buffer before we
         // start playing
-        //use alsa::pcm::State;
-        //if self.pcm.state() != State::Running {
-        //    self.pcm.start().unwrap()
-        //};
+        use alsa::pcm::State;
+        if self.pcm.state() != State::Running {
+            self.pcm.start().unwrap()
+        };
     }
 
-    /// Wait for the stream to finish playback.
-    pub fn drain(&self) {
-        self.pcm.drain().unwrap();
-    }
+    ///// Wait for the stream to finish playback.
+    //pub fn drain(&self) {
+    //    self.pcm.drain().unwrap();
+    //}
 }
