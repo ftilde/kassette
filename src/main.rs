@@ -88,19 +88,13 @@ fn main() {
         })
         .unwrap();
 
-    let mut rotary_encoder = rotary_encoder::RotaryEncoder::new(
+    let rotary_encoder = rotary_encoder::RotaryEncoder::new(
         gpio.get(pins::ROTARY_ENCODER_EVENT).unwrap(),
         gpio.get(pins::ROTARY_ENCODER_DIRECTION).unwrap(),
     );
 
-    let _ = std::thread::Builder::new()
-        .name("rotary_encoder_thread".to_owned())
-        .spawn(move || {
-            for e in rotary_encoder.events(Duration::from_millis(25)) {
-                println!("Event: {:0x?}", e);
-            }
-        })
-        .unwrap();
+    let _guard =
+        rotary_encoder.start_events(Duration::from_millis(25), |e| println!("Event: {:0x?}", e));
 
     let mut led = led::Led::new(gpio.get(pins::LED_OUTPUT_PIN).unwrap());
 

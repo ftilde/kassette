@@ -1,4 +1,4 @@
-use rppal::gpio::{InputPin, Pin};
+use rppal::gpio::{InputPin, Level, Pin};
 
 use std::time::Duration;
 
@@ -13,6 +13,11 @@ pub struct RotaryEncoder {
     direction_pin: InputPin,
 }
 
+#[must_use]
+pub struct EventGuard {
+    _event_pin: InputPin,
+}
+
 impl RotaryEncoder {
     pub fn new(event_pin: Pin, direction_pin: Pin) -> Self {
         let event_pin = event_pin.into_input();
@@ -24,36 +29,35 @@ impl RotaryEncoder {
         }
     }
 
-    fn wait_for_event(&mut self) -> Result<(), rppal::gpio::Error> {
-        loop {
-            self.event_pin
-                .set_interrupt(rppal::gpio::Trigger::FallingEdge)?;
-            if let Some(rppal::gpio::Level::Low) = self.event_pin.poll_interrupt(true, None)? {
-                return Ok(());
-            }
-        }
-    }
-
-    pub fn events(
-        &mut self,
+    pub fn start_events(
+        self,
         debounce_time: Duration,
-    ) -> impl Iterator<Item = RotaryEncoderEvent> + '_ {
+        mut event_handler: impl FnMut(RotaryEncoderEvent) + Send + 'static,
+    ) -> EventGuard {
         let mut previous_time = std::time::Instant::now();
+        let direction_pin = self.direction_pin;
+        let mut event_pin = self.event_pin;
 
-        std::iter::from_fn(move || loop {
-            if self.wait_for_event().is_err() {
-                continue;
-            }
-            let elapsed = previous_time.elapsed();
-            if elapsed < debounce_time {
-                continue;
-            }
-            previous_time = std::time::Instant::now();
+        event_pin
+            .set_async_interrupt(rppal::gpio::Trigger::FallingEdge, move |level| {
+                if level != Level::Low {
+                    return;
+                }
+                let elapsed = previous_time.elapsed();
+                if elapsed < debounce_time {
+                    return;
+                }
+                previous_time = std::time::Instant::now();
 
-            match self.direction_pin.read() {
-                rppal::gpio::Level::Low => break Some(RotaryEncoderEvent::TurnLeft),
-                rppal::gpio::Level::High => break Some(RotaryEncoderEvent::TurnRight),
-            }
-        })
+                let event = match direction_pin.read() {
+                    rppal::gpio::Level::Low => RotaryEncoderEvent::TurnLeft,
+                    rppal::gpio::Level::High => RotaryEncoderEvent::TurnRight,
+                };
+                event_handler(event);
+            })
+            .unwrap();
+        EventGuard {
+            _event_pin: event_pin,
+        }
     }
 }
