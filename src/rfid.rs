@@ -3,7 +3,7 @@ use rppal::gpio::{InputPin, Level, Pin};
 use spidev;
 
 use std::path::Path;
-use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
+use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, TrySendError};
 use std::time::Duration;
 
 #[derive(Copy, Clone, Debug)]
@@ -72,13 +72,19 @@ impl RfidReader {
 
         let mut interrupt_pin = interrupt_pin.into_input_pullup();
 
-        let (sink, source) = channel();
+        let (sink, source) = sync_channel(1);
 
         interrupt_pin.set_async_interrupt(rppal::gpio::Trigger::FallingEdge, move |level| {
             if level != Level::Low {
                 return;
             }
-            sink.send(()).unwrap();
+            match sink.try_send(()) {
+                Ok(_) => {}
+                Err(TrySendError::Full(_)) => {}
+                Err(TrySendError::Disconnected(_)) => {
+                    panic!("Pipe disconnected before interrupt func cleared!")
+                }
+            }
         })?;
 
         Ok(RfidReader {
@@ -121,6 +127,9 @@ impl RfidReader {
     }
 
     fn check_card_present(&mut self, check_timeout: Duration) -> Result<bool, RfIdError> {
+        // Clear previous interrupt
+        let _ = self.interrupts.try_recv();
+
         self.mfrc.init()?;
 
         // Clear previous interrupt bits
