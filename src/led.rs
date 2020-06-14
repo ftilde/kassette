@@ -8,6 +8,7 @@ pub struct Led {
 
 pub enum LedCommand {
     Blink(Duration),
+    DoubleBlink(Duration, Duration, Duration),
 }
 
 impl Led {
@@ -30,6 +31,15 @@ impl Led {
             LedCommand::Blink(len) => {
                 self.on();
                 std::thread::sleep(len);
+                self.off();
+            }
+            LedCommand::DoubleBlink(on1, off, on2) => {
+                self.on();
+                std::thread::sleep(on1);
+                self.off();
+                std::thread::sleep(off);
+                self.on();
+                std::thread::sleep(on2);
                 self.off();
             }
         }

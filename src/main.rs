@@ -195,10 +195,38 @@ fn main() {
 
     loop {
         match event_source.try_recv() {
-            Ok(Event::IncreaseVolume) => player.increase_volume(),
-            Ok(Event::DecreaseVolume) => player.decrease_volume(),
-            Ok(Event::Play(_)) => player.resume(),
-            Ok(Event::Stop) => player.pause(),
+            Ok(Event::IncreaseVolume) => {
+                led_cmd_sink
+                    .send(led::LedCommand::Blink(Duration::from_millis(100)))
+                    .unwrap();
+                player.increase_volume();
+            }
+            Ok(Event::DecreaseVolume) => {
+                led_cmd_sink
+                    .send(led::LedCommand::DoubleBlink(
+                        Duration::from_millis(40),
+                        Duration::from_millis(20),
+                        Duration::from_millis(40),
+                    ))
+                    .unwrap();
+                player.decrease_volume();
+            }
+            Ok(Event::Play(_)) => {
+                led_cmd_sink
+                    .send(led::LedCommand::Blink(Duration::from_millis(500)))
+                    .unwrap();
+                player.resume();
+            }
+            Ok(Event::Stop) => {
+                led_cmd_sink
+                    .send(led::LedCommand::DoubleBlink(
+                        Duration::from_millis(200),
+                        Duration::from_millis(100),
+                        Duration::from_millis(200),
+                    ))
+                    .unwrap();
+                player.pause();
+            }
             Err(mpsc::TryRecvError::Empty) => {}
             Err(mpsc::TryRecvError::Disconnected) => {
                 panic!("Player event channel closed unexpectedly")
