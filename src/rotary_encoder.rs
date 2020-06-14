@@ -1,4 +1,4 @@
-use rppal::gpio::{Gpio, InputPin};
+use rppal::gpio::{InputPin, Pin};
 
 use std::time::Duration;
 
@@ -14,20 +14,14 @@ pub struct RotaryEncoder {
 }
 
 impl RotaryEncoder {
-    pub fn new(gpio: &Gpio) -> Result<Self, rppal::gpio::Error> {
-        let event_pin = gpio
-            .get(crate::pins::ROTARY_ENCODER_EVENT)
-            .unwrap()
-            .into_input();
-        let direction_pin = gpio
-            .get(crate::pins::ROTARY_ENCODER_DIRECTION)
-            .unwrap()
-            .into_input();
+    pub fn new(event_pin: Pin, direction_pin: Pin) -> Self {
+        let event_pin = event_pin.into_input();
+        let direction_pin = direction_pin.into_input();
 
-        Ok(RotaryEncoder {
+        RotaryEncoder {
             event_pin,
             direction_pin,
-        })
+        }
     }
 
     fn wait_for_event(&mut self) -> Result<(), rppal::gpio::Error> {

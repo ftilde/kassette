@@ -1,4 +1,4 @@
-use rppal::gpio::{Gpio, OutputPin};
+use rppal::gpio::{OutputPin, Pin};
 
 use std::time::Duration;
 
@@ -11,10 +11,10 @@ pub enum LedCommand {
 }
 
 impl Led {
-    pub fn new(gpio: &Gpio) -> Result<Self, rppal::gpio::Error> {
-        let output_pin = gpio.get(crate::pins::LED_OUTPUT_PIN).unwrap().into_output();
+    pub fn new(output_pin: Pin) -> Self {
+        let output_pin = output_pin.into_output();
 
-        Ok(Led { output_pin })
+        Led { output_pin }
     }
 
     fn on(&mut self) {

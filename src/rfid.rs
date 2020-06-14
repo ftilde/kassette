@@ -1,5 +1,5 @@
 use rfid_rs;
-use rppal::gpio::{Gpio, InputPin};
+use rppal::gpio::{InputPin, Pin};
 use spidev;
 
 use std::path::Path;
@@ -56,7 +56,7 @@ pub struct RfidReader {
 }
 
 impl RfidReader {
-    pub fn new(device_path: impl AsRef<Path>, gpio: &Gpio) -> Result<Self, rfid_rs::Error> {
+    pub fn new(device_path: impl AsRef<Path>, interrupt_pin: Pin) -> Result<Self, rfid_rs::Error> {
         let mut spi = spidev::Spidev::open(device_path)?;
 
         let mut options = spidev::SpidevOptions::new();
@@ -68,10 +68,7 @@ impl RfidReader {
 
         mfrc.init()?;
 
-        let interrupt_pin = gpio
-            .get(crate::pins::RFID_INTERRUPT)
-            .unwrap()
-            .into_input_pullup();
+        let interrupt_pin = interrupt_pin.into_input_pullup();
 
         Ok(RfidReader {
             mfrc,

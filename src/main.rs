@@ -76,7 +76,8 @@ fn main() {
     general_setup();
 
     let gpio = rppal::gpio::Gpio::new().unwrap();
-    let mut rfid_reader = rfid::RfidReader::new("/dev/spidev0.0", &gpio).unwrap();
+    let mut rfid_reader =
+        rfid::RfidReader::new("/dev/spidev0.0", gpio.get(pins::RFID_INTERRUPT).unwrap()).unwrap();
 
     let rfid_thread = std::thread::Builder::new()
         .name("card_event_thread".to_owned())
@@ -87,7 +88,10 @@ fn main() {
         })
         .unwrap();
 
-    let mut rotary_encoder = rotary_encoder::RotaryEncoder::new(&gpio).unwrap();
+    let mut rotary_encoder = rotary_encoder::RotaryEncoder::new(
+        gpio.get(pins::ROTARY_ENCODER_EVENT).unwrap(),
+        gpio.get(pins::ROTARY_ENCODER_DIRECTION).unwrap(),
+    );
 
     let _ = std::thread::Builder::new()
         .name("rotary_encoder_thread".to_owned())
@@ -98,7 +102,7 @@ fn main() {
         })
         .unwrap();
 
-    let mut led = led::Led::new(&gpio).unwrap();
+    let mut led = led::Led::new(gpio.get(pins::LED_OUTPUT_PIN).unwrap());
 
     let (led_cmd_sink, led_cmd_source) = mpsc::channel();
 
