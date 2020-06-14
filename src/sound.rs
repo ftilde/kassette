@@ -75,6 +75,10 @@ impl AudioOutput {
         }
     }
 
+    pub fn sample_rate(&self) -> u64 {
+        self.sample_rate
+    }
+
     pub fn play_buf(&mut self, buf: &[i16]) {
         let io = self.pcm.io_i16().unwrap();
 
