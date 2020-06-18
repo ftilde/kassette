@@ -1,9 +1,14 @@
 # See /boot/overlays/README for all available options
 
+disable_splash=1
+boot_delay=0
+
+dtparam=spi=on
 gpu_mem=16
 initramfs initramfs-linux.img followkernel
 kernel vmlinuz-linux
-boot_delay=0
-disable_splash=1
-dtparam=audio=on
-hdmi_drive=1
+
+dtoverlay=gpio-shutdown,gpio_pin=3,active_low=1,gpio_pull=up # on/off switch on gpio 3
+
+dtoverlay=hifiberry-dac # for hifiberry audio
+#dtparam=audio=on       # for on-board line out audio

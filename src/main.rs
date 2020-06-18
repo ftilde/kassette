@@ -105,6 +105,16 @@ fn main() {
 
     player.play_file("./mcd2.ogg");
 
+    //let mut sw = gpio
+    //    .get(pins::ROTARY_ENCODER_SWITCH)
+    //    .unwrap()
+    //    .into_input_pullup();
+
+    //sw.set_async_interrupt(rppal::gpio::Trigger::FallingEdge, |_| {
+    //    println!("SW pressed!")
+    //})
+    //.unwrap();
+
     loop {
         match event_source.try_recv() {
             Ok(Event::IncreaseVolume) => {
