@@ -12,9 +12,6 @@ kernel vmlinuz-linux
 dtparam=pwr_led_trigger=none
 dtparam=pwr_led=activelow=off
 
-# On/off switch on gpio 3
-dtoverlay=gpio-shutdown,gpio_pin=3,active_low=1,gpio_pull=up
-
 # Audio interfaces
 dtoverlay=hifiberry-dac # for hifiberry audio
 #dtparam=audio=on       # for on-board line out audio

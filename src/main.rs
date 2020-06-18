@@ -10,11 +10,13 @@ mod sound;
 
 const INITIAL_VOLUME: usize = 13;
 
+fn is_init() -> bool {
+    std::process::id() == 1
+}
+
 /// Mounting stuff etc.
 fn general_setup() {
-    let is_init = std::process::id() == 1;
-
-    if is_init {
+    if is_init() {
         println!("Running as init.");
         nix::mount::mount::<str, str, str, str>(
             None,
@@ -42,6 +44,7 @@ enum Event {
     Stop,
     IncreaseVolume,
     DecreaseVolume,
+    Shutdown,
 }
 
 fn main() {
@@ -53,7 +56,8 @@ fn main() {
 
     let (event_sink, event_source) = mpsc::channel();
     let rfid_event_sink = event_sink.clone();
-    let rotary_encoder_event_sink = event_sink;
+    let rotary_encoder_event_sink = event_sink.clone();
+    let shutdown_event_sink = event_sink;
 
     let _rfid_thread = std::thread::Builder::new()
         .name("card_event_thread".to_owned())
@@ -105,15 +109,15 @@ fn main() {
 
     player.play_file("./mcd2.ogg");
 
-    //let mut sw = gpio
-    //    .get(pins::ROTARY_ENCODER_SWITCH)
-    //    .unwrap()
-    //    .into_input_pullup();
+    let mut sw = gpio
+        .get(pins::ROTARY_ENCODER_SWITCH)
+        .unwrap()
+        .into_input_pullup();
 
-    //sw.set_async_interrupt(rppal::gpio::Trigger::FallingEdge, |_| {
-    //    println!("SW pressed!")
-    //})
-    //.unwrap();
+    sw.set_async_interrupt(rppal::gpio::Trigger::FallingEdge, move |_| {
+        shutdown_event_sink.send(Event::Shutdown).unwrap();
+    })
+    .unwrap();
 
     loop {
         match event_source.try_recv() {
@@ -149,11 +153,22 @@ fn main() {
                     .unwrap();
                 player.pause();
             }
+            Ok(Event::Shutdown) => {
+                break;
+            }
             Err(mpsc::TryRecvError::Empty) => {}
             Err(mpsc::TryRecvError::Disconnected) => {
                 panic!("Player event channel closed unexpectedly")
             }
         }
         player.push_samples();
+    }
+
+    //TODO: Save state etc
+
+    if is_init() {
+        nix::sys::reboot::reboot(nix::sys::reboot::RebootMode::RB_POWER_OFF).unwrap();
+    } else {
+        eprintln!("Not powering off because not running as PID 1");
     }
 }
