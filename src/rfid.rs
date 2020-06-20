@@ -6,8 +6,8 @@ use std::path::Path;
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, TrySendError};
 use std::time::Duration;
 
-#[derive(Copy, Clone, Debug)]
-pub struct Uid(u64);
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Uid(pub u64);
 
 impl From<rfid_rs::Uid> for Uid {
     fn from(other: rfid_rs::Uid) -> Self {

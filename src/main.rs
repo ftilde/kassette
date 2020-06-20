@@ -39,6 +39,15 @@ fn general_setup() {
     }
 }
 
+use std::collections::HashMap;
+use std::path::PathBuf;
+fn id_file_map() -> HashMap<rfid::Uid, PathBuf> {
+    let mut map = HashMap::new();
+    map.insert(rfid::Uid(0xa930fcb800), PathBuf::from("mcd.ogg"));
+    map.insert(rfid::Uid(0xc3aa960c00), PathBuf::from("mcd2.ogg"));
+    map
+}
+
 enum Event {
     Play(rfid::Uid),
     Stop,
@@ -49,6 +58,8 @@ enum Event {
 
 fn main() {
     general_setup();
+
+    let file_map = id_file_map();
 
     let gpio = rppal::gpio::Gpio::new().unwrap();
     let mut rfid_reader =
@@ -107,8 +118,6 @@ fn main() {
     let out = sound::AudioOutput::new();
     let mut player = player::Player::new(out, INITIAL_VOLUME);
 
-    player.play_file("./mcd2.ogg");
-
     let mut sw = gpio
         .get(pins::ROTARY_ENCODER_SWITCH)
         .unwrap()
@@ -118,6 +127,8 @@ fn main() {
         shutdown_event_sink.send(Event::Shutdown).unwrap();
     })
     .unwrap();
+
+    let mut last_card = None;
 
     loop {
         match event_source.try_recv() {
@@ -137,11 +148,20 @@ fn main() {
                     .unwrap();
                 player.decrease_volume();
             }
-            Ok(Event::Play(_)) => {
+            Ok(Event::Play(uid)) => {
+                if last_card == Some(uid) && !player.idle() {
+                    player.resume();
+                } else {
+                    if let Some(file) = file_map.get(&uid) {
+                        player.play_file(file);
+                    } else {
+                        eprintln!("Unkown card: {:x}", uid.0);
+                    }
+                    last_card = Some(uid);
+                }
                 led_cmd_sink
                     .send(led::LedCommand::Blink(Duration::from_millis(500)))
                     .unwrap();
-                player.resume();
             }
             Ok(Event::Stop) => {
                 led_cmd_sink

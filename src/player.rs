@@ -131,6 +131,14 @@ impl Player {
         }
     }
 
+    pub fn idle(&self) -> bool {
+        if let PlayerState::Idle = self.state {
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn push_samples(&mut self) {
         match &mut self.state {
             PlayerState::Playing(srr) => {
