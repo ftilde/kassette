@@ -1,6 +1,3 @@
-
-[build]
-target = "arm-unknown-linux-gnueabihf"
 [target.arm-unknown-linux-gnueabihf]
 linker = "toolchain/arm-unknown-linux-gnueabihf/bin/armv6l-unknown-linux-gnueabihf-gcc"
 
