@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::time::Duration;
 
 struct Resampler {
     source_sample_counter: u64,
@@ -70,6 +71,21 @@ impl AudioSource {
         }
     }
 
+    fn sample_rate(&self) -> u64 {
+        self.stream.ident_hdr.audio_sample_rate as u64
+    }
+
+    fn current_pos(&self) -> Duration {
+        Duration::from_micros(
+            1_000_000 * self.stream.get_last_absgp().unwrap_or(0) / self.sample_rate(),
+        )
+    }
+
+    fn seek(&mut self, d: Duration) {
+        let pos = d.as_micros() as u64 * self.sample_rate() / 1_000_000;
+        self.stream.seek_absgp_pg(pos).unwrap();
+    }
+
     fn next_chunk(&mut self) -> Option<Vec<i16>> {
         self.stream
             .read_dec_packet_itl()
@@ -107,8 +123,12 @@ impl Player {
         self.volume = self.volume.saturating_sub(1);
     }
 
-    pub fn play_file(&mut self, file_path: impl AsRef<Path>) {
-        let source = AudioSource::new(file_path, self.output.sample_rate());
+    pub fn play_file(&mut self, file_path: impl AsRef<Path>, start_pos: Option<Duration>) {
+        let mut source = AudioSource::new(file_path, self.output.sample_rate());
+
+        if let Some(start_pos) = start_pos {
+            source.seek(start_pos);
+        }
 
         self.state = PlayerState::Playing(source);
     }
@@ -136,6 +156,13 @@ impl Player {
             true
         } else {
             false
+        }
+    }
+
+    pub fn playback_pos(&self) -> Option<Duration> {
+        match self.state {
+            PlayerState::Paused(ref s) | PlayerState::Playing(ref s) => Some(s.current_pos()),
+            PlayerState::Idle => None,
         }
     }
 

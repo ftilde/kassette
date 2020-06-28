@@ -8,9 +8,11 @@ mod pins;
 mod player;
 mod rfid;
 mod rotary_encoder;
+mod save_state;
 mod sound;
 
-const INITIAL_VOLUME: usize = 13;
+const INITIAL_VOLUME: usize = 11;
+const SAVESTATE_PATH: &str = "savestate.json";
 
 fn is_init() -> bool {
     std::process::id() == 1
@@ -102,6 +104,8 @@ fn main() {
         println!("Event: {:0x?}", e)
     });
 
+    let mut save_state = save_state::SaveState::load(SAVESTATE_PATH).unwrap_or_default();
+
     let mut led = led::Led::new(gpio.get(pins::LED_OUTPUT_PIN).unwrap());
 
     let (led_cmd_sink, led_cmd_source) = mpsc::channel();
@@ -134,6 +138,16 @@ fn main() {
 
     let mut last_card = None;
 
+    if let Some((uid, pos)) = save_state.playback_pos() {
+        last_card = Some(uid);
+        if let Some(file) = file_map.get(&uid) {
+            player.play_file(file, Some(pos));
+            player.pause();
+        } else {
+            eprintln!("Cannot resume for unknown uid: {:x}", uid.0);
+        }
+    }
+
     loop {
         match event_source.try_recv() {
             Ok(Event::IncreaseVolume) => {
@@ -157,7 +171,7 @@ fn main() {
                     player.resume();
                 } else {
                     if let Some(file) = file_map.get(&uid) {
-                        player.play_file(file);
+                        player.play_file(file, None);
                     } else {
                         eprintln!("Unkown card: {:x}", uid.0);
                     }
@@ -188,7 +202,13 @@ fn main() {
         player.push_samples();
     }
 
-    //TODO: Save state etc
+    let playback_pos = if let (Some(uid), Some(pos)) = (last_card, player.playback_pos()) {
+        Some((uid, pos))
+    } else {
+        None
+    };
+    save_state.set_playback_pos(playback_pos);
+    save_state.save(SAVESTATE_PATH);
 
     if is_init() {
         nix::sys::reboot::reboot(nix::sys::reboot::RebootMode::RB_POWER_OFF).unwrap();
