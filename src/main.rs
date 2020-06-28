@@ -11,7 +11,6 @@ mod rotary_encoder;
 mod save_state;
 mod sound;
 
-const INITIAL_VOLUME: usize = 11;
 const SAVESTATE_PATH: &str = "savestate.json";
 
 fn is_init() -> bool {
@@ -124,7 +123,7 @@ fn main() {
         .unwrap();
 
     let out = sound::AudioOutput::new();
-    let mut player = player::Player::new(out, INITIAL_VOLUME);
+    let mut player = player::Player::new(out, save_state.volume());
 
     let mut sw = gpio
         .get(pins::ROTARY_ENCODER_SWITCH)
@@ -154,7 +153,7 @@ fn main() {
                 led_cmd_sink
                     .send(led::LedCommand::Blink(Duration::from_millis(100)))
                     .unwrap();
-                player.increase_volume();
+                *player.volume() += 1;
             }
             Ok(Event::DecreaseVolume) => {
                 led_cmd_sink
@@ -164,7 +163,7 @@ fn main() {
                         Duration::from_millis(40),
                     ))
                     .unwrap();
-                player.decrease_volume();
+                *player.volume() -= 1;
             }
             Ok(Event::Play(uid)) => {
                 if last_card == Some(uid) && !player.idle() {
@@ -208,6 +207,7 @@ fn main() {
         None
     };
     save_state.set_playback_pos(playback_pos);
+    save_state.set_volume(*player.volume());
     save_state.save(SAVESTATE_PATH);
 
     if is_init() {

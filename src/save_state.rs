@@ -1,3 +1,4 @@
+use crate::player::Volume;
 use crate::rfid::Uid;
 use miniserde::{json, Deserialize, Serialize};
 use std::fs::File;
@@ -8,6 +9,7 @@ use std::time::Duration;
 #[derive(Serialize, Deserialize, Default)]
 pub struct SaveState {
     playback_pos: Option<(u64, u64)>,
+    volume: Volume,
 }
 
 impl SaveState {
@@ -28,5 +30,13 @@ impl SaveState {
     }
     pub fn set_playback_pos(&mut self, playback_pos: Option<(Uid, Duration)>) {
         self.playback_pos = playback_pos.map(|(uid, duration)| (uid.0, duration.as_millis() as u64))
+    }
+
+    pub fn volume(&self) -> Volume {
+        self.volume
+    }
+
+    pub fn set_volume(&mut self, vol: Volume) {
+        self.volume = vol;
     }
 }

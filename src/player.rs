@@ -1,3 +1,4 @@
+use miniserde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::Duration;
 
@@ -42,7 +43,6 @@ impl Resampler {
 
 use lewton::inside_ogg::OggStreamReader;
 
-const MAX_VOLUME: usize = 16;
 const MUTED_BUF: &[i16] = &[0; 1024];
 
 struct AudioSource {
@@ -94,6 +94,39 @@ impl AudioSource {
     }
 }
 
+const MAX_VOLUME: u8 = 15;
+const DEFAULT_VOLUME: u8 = 11;
+
+#[derive(Copy, Clone, Serialize, Deserialize)]
+pub struct Volume {
+    amt: u8,
+}
+
+impl Default for Volume {
+    fn default() -> Self {
+        Volume {
+            amt: DEFAULT_VOLUME,
+        }
+    }
+}
+
+impl Volume {
+    fn apply(&self, i: i16) -> i16 {
+        i >> (MAX_VOLUME.saturating_sub(self.amt))
+    }
+}
+
+impl std::ops::AddAssign<u8> for Volume {
+    fn add_assign(&mut self, other: u8) {
+        self.amt = (self.amt + other).min(MAX_VOLUME);
+    }
+}
+impl std::ops::SubAssign<u8> for Volume {
+    fn sub_assign(&mut self, other: u8) {
+        self.amt = self.amt.saturating_sub(other);
+    }
+}
+
 enum PlayerState {
     Playing(AudioSource),
     Paused(AudioSource),
@@ -103,24 +136,19 @@ enum PlayerState {
 pub struct Player {
     output: crate::sound::AudioOutput,
     state: PlayerState,
-    volume: usize,
+    volume: Volume,
 }
 
 impl Player {
-    pub fn new(output: crate::sound::AudioOutput, volume: usize) -> Self {
+    pub fn new(output: crate::sound::AudioOutput, volume: Volume) -> Self {
         Player {
             output,
             state: PlayerState::Idle,
             volume,
         }
     }
-    pub fn increase_volume(&mut self) {
-        self.volume += 1;
-        self.volume = self.volume.min(MAX_VOLUME);
-    }
-
-    pub fn decrease_volume(&mut self) {
-        self.volume = self.volume.saturating_sub(1);
+    pub fn volume(&mut self) -> &mut Volume {
+        &mut self.volume
     }
 
     pub fn play_file(&mut self, file_path: impl AsRef<Path>, start_pos: Option<Duration>) {
@@ -171,7 +199,7 @@ impl Player {
             PlayerState::Playing(srr) => {
                 if let Some(mut pck_samples) = srr.next_chunk() {
                     for s in &mut pck_samples {
-                        *s = *s >> (MAX_VOLUME - self.volume);
+                        *s = self.volume.apply(*s);
                     }
                     if pck_samples.len() > 0 {
                         self.output.play_buf(&pck_samples);
