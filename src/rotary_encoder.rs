@@ -1,6 +1,6 @@
 use rppal::gpio::{InputPin, Level, Pin};
-
-use std::time::Duration;
+use std::sync::Mutex;
+use std::sync::{Arc, Weak};
 
 #[derive(Copy, Clone, Debug)]
 pub enum RotaryEncoderEvent {
@@ -15,7 +15,59 @@ pub struct RotaryEncoder {
 
 #[must_use]
 pub struct EventGuard {
-    _event_pin: InputPin,
+    _state: Arc<Mutex<State>>,
+}
+
+struct State {
+    p1: InputPin,
+    p2: InputPin,
+    event_handler: Box<dyn FnMut(RotaryEncoderEvent) + Send + 'static>,
+    transition: usize,
+    last_valid_transitions: usize,
+}
+
+fn update_state(state: &Weak<Mutex<State>>) {
+    let state = if let Some(state) = state.upgrade() {
+        state
+    } else {
+        return;
+    };
+    let mut state = if let Ok(state) = state.try_lock() {
+        state
+    } else {
+        return;
+    };
+
+    let l1 = state.p1.read();
+    let l2 = state.p2.read();
+
+    // Kudos to https://www.best-microcontroller-projects.com/rotary-encoder.html for a proper
+    // debouncing technique!
+
+    state.transition <<= 2;
+    if l1 == Level::High {
+        state.transition |= 1;
+    }
+    if l2 == Level::High {
+        state.transition |= 2;
+    }
+    state.transition &= 0xf;
+
+    const VALID_TRANSITION_TABLE: [u8; 16] = [0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0];
+    if VALID_TRANSITION_TABLE[state.transition] == 1 {
+        state.last_valid_transitions <<= 4;
+        state.last_valid_transitions |= state.transition;
+        state.last_valid_transitions &= 0xff;
+        let event = match state.last_valid_transitions {
+            0b0010_1011 => Some(RotaryEncoderEvent::TurnLeft), // First p2 pos edge, then p1 pos edge
+            0b0001_0111 => Some(RotaryEncoderEvent::TurnRight), // First p1 pos edge, then p2 pos edge
+            _ => None,
+        };
+
+        if let Some(event) = event {
+            (&mut state.event_handler)(event);
+        }
+    }
 }
 
 impl RotaryEncoder {
@@ -31,33 +83,31 @@ impl RotaryEncoder {
 
     pub fn start_events(
         self,
-        debounce_time: Duration,
-        mut event_handler: impl FnMut(RotaryEncoderEvent) + Send + 'static,
+        event_handler: impl FnMut(RotaryEncoderEvent) + Send + 'static,
     ) -> EventGuard {
-        let mut previous_time = std::time::Instant::now();
-        let direction_pin = self.direction_pin;
-        let mut event_pin = self.event_pin;
+        let state = Arc::new(Mutex::new(State {
+            p1: self.event_pin,
+            p2: self.direction_pin,
+            event_handler: Box::new(event_handler),
+            transition: 0,
+            last_valid_transitions: 0,
+        }));
 
-        event_pin
-            .set_async_interrupt(rppal::gpio::Trigger::FallingEdge, move |level| {
-                if level != Level::Low {
-                    return;
-                }
-                let elapsed = previous_time.elapsed();
-                if elapsed < debounce_time {
-                    return;
-                }
-                previous_time = std::time::Instant::now();
+        let s1 = Arc::downgrade(&state);
+        let s2 = Arc::downgrade(&state);
 
-                let event = match direction_pin.read() {
-                    rppal::gpio::Level::Low => RotaryEncoderEvent::TurnLeft,
-                    rppal::gpio::Level::High => RotaryEncoderEvent::TurnRight,
-                };
-                event_handler(event);
-            })
-            .unwrap();
-        EventGuard {
-            _event_pin: event_pin,
+        {
+            let mut state = state.lock().unwrap();
+
+            state
+                .p1
+                .set_async_interrupt(rppal::gpio::Trigger::Both, move |_| update_state(&s1))
+                .unwrap();
+            state
+                .p2
+                .set_async_interrupt(rppal::gpio::Trigger::Both, move |_| update_state(&s2))
+                .unwrap();
         }
+        EventGuard { _state: state }
     }
 }

@@ -94,7 +94,7 @@ fn main() {
         gpio.get(pins::ROTARY_ENCODER_DIRECTION).unwrap(),
     );
 
-    let _guard = rotary_encoder.start_events(Duration::from_millis(25), move |e| {
+    let _guard = rotary_encoder.start_events(move |e| {
         let event = match e {
             rotary_encoder::RotaryEncoderEvent::TurnLeft => Event::DecreaseVolume,
             rotary_encoder::RotaryEncoderEvent::TurnRight => Event::IncreaseVolume,
@@ -151,16 +151,16 @@ fn main() {
         match event_source.try_recv() {
             Ok(Event::IncreaseVolume) => {
                 led_cmd_sink
-                    .send(led::LedCommand::Blink(Duration::from_millis(100)))
+                    .send(led::LedCommand::Blink(Duration::from_millis(5)))
                     .unwrap();
                 *player.volume() += 1;
             }
             Ok(Event::DecreaseVolume) => {
                 led_cmd_sink
                     .send(led::LedCommand::DoubleBlink(
+                        Duration::from_millis(5),
                         Duration::from_millis(40),
-                        Duration::from_millis(20),
-                        Duration::from_millis(40),
+                        Duration::from_millis(5),
                     ))
                     .unwrap();
                 *player.volume() -= 1;
