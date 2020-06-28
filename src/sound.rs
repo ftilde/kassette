@@ -79,28 +79,35 @@ impl AudioOutput {
         self.sample_rate
     }
 
+    fn recover(&mut self, e: alsa::Error) {
+        eprintln!("Trying to recover from error: {:?}", e);
+        self.pcm.try_recover(e, false).unwrap();
+        self.current_sample_num = 0;
+        self.start_time = Instant::now();
+    }
+
     pub fn play_buf(&mut self, buf: &[i16]) {
-        let io = self.pcm.io_i16().unwrap();
+        let write_res = {
+            let io = self.pcm.io_i16().unwrap();
+            io.writei(&buf[..])
+        };
 
         //let pre = std::time::Instant::now();
         let num_channels = 2;
-        match io.writei(&buf[..]) {
+        match write_res {
             Ok(frames) => {
                 assert_eq!(frames, buf.len() / num_channels);
                 //eprintln!("Write: {:?}", pre.elapsed());
             }
-            Err(e) => {
-                eprintln!("OI Error: {:?}", e);
-                self.pcm.try_recover(e, false).unwrap();
-                self.current_sample_num = 0;
-                self.start_time = Instant::now();
-            }
+            Err(e) => self.recover(e),
         }
 
         // start playing
         use alsa::pcm::State;
         if self.pcm.state() != State::Running {
-            self.pcm.start().unwrap()
+            if let Err(e) = self.pcm.start() {
+                self.recover(e);
+            }
         };
 
         self.current_sample_num += (buf.len() / num_channels) as u64;
