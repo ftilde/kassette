@@ -7,14 +7,24 @@ use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, TrySendError};
 use std::time::Duration;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Uid(pub u64);
+pub struct Uid(pub u32);
+
+impl std::fmt::Display for Uid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:02X} ", (self.0 >> 24) & 0xff)?;
+        write!(f, "{:02X} ", (self.0 >> 16) & 0xff)?;
+        write!(f, "{:02X} ", (self.0 >> 8) & 0xff)?;
+        write!(f, "{:02X}", (self.0 >> 0) & 0xff)?;
+        Ok(())
+    }
+}
 
 impl From<rfid_rs::Uid> for Uid {
     fn from(other: rfid_rs::Uid) -> Self {
         let mut val = 0;
         for b in other.bytes {
-            val += b as u64;
             val = val << 8;
+            val += b as u32;
         }
         Uid(val)
     }

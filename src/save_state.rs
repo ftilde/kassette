@@ -8,7 +8,7 @@ use std::time::Duration;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct SaveState {
-    playback_pos: Option<(u64, u64)>,
+    playback_pos: Option<(u32, u64)>,
     volume: Volume,
 }
 

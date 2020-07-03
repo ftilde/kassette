@@ -3,12 +3,12 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
-fn parse_num(s: &str) -> Option<u64> {
+fn parse_num(s: &str) -> Option<u32> {
     match s.as_bytes() {
-        [b'0', b'b', ..] => u64::from_str_radix(&s[2..], 2),
-        [b'0', b'x', ..] => u64::from_str_radix(&s[2..], 16),
-        [b'0', b'o', ..] => u64::from_str_radix(&s[2..], 8),
-        _ => u64::from_str_radix(s, 10),
+        [b'0', b'b', ..] => u32::from_str_radix(&s[2..], 2),
+        [b'0', b'x', ..] => u32::from_str_radix(&s[2..], 16),
+        [b'0', b'o', ..] => u32::from_str_radix(&s[2..], 8),
+        _ => u32::from_str_radix(s, 10),
     }
     .ok()
 }

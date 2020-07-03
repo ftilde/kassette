@@ -58,8 +58,8 @@ fn main() {
     } else {
         let f = std::io::Cursor::new(
             &r"
-            0xa930fcb800 mcd.ogg
-            0xc3aa960c00 mcd2.ogg
+            0xa930fcb8 mcd.ogg
+            0xc3aa960c mcd2.ogg
             "[..],
         );
         media_definition::parse_media_definition(f, "")
@@ -172,7 +172,7 @@ fn main() {
                     if let Some(file) = file_map.get(&uid) {
                         player.play_file(file, None);
                     } else {
-                        eprintln!("Unkown card: {:x}", uid.0);
+                        eprintln!("Unkown card: {}", uid);
                     }
                     last_card = Some(uid);
                 }
