@@ -147,7 +147,8 @@ fn main() {
         }
     }
 
-    loop {
+    let mut stopped = false;
+    while !(stopped && !player.playing()) {
         match event_source.try_recv() {
             Ok(Event::IncreaseVolume) => {
                 led_cmd_sink
@@ -189,6 +190,7 @@ fn main() {
                     ))
                     .unwrap();
                 player.pause();
+                stopped = true;
             }
             Ok(Event::Shutdown) => {
                 break;

@@ -50,6 +50,19 @@ struct AudioSource {
     resampler: Resampler,
 }
 
+#[derive(Copy, Clone)]
+pub struct PlaybackPos(Duration);
+
+impl PlaybackPos {
+    pub fn from_millis(millis: u64) -> Self {
+        Self(Duration::from_millis(millis))
+    }
+
+    pub fn as_millis(&self) -> u64 {
+        self.0.as_millis() as _
+    }
+}
+
 impl AudioSource {
     fn new(file_path: impl AsRef<Path>, output_sample_rate: u64) -> Self {
         let f = std::fs::File::open(file_path).expect("Can't open file");
@@ -75,14 +88,14 @@ impl AudioSource {
         self.stream.ident_hdr.audio_sample_rate as u64
     }
 
-    fn current_pos(&self) -> Duration {
-        Duration::from_micros(
+    fn current_pos(&self) -> PlaybackPos {
+        PlaybackPos(Duration::from_micros(
             1_000_000 * self.stream.get_last_absgp().unwrap_or(0) / self.sample_rate(),
-        )
+        ))
     }
 
-    fn seek(&mut self, d: Duration) {
-        let pos = d.as_micros() as u64 * self.sample_rate() / 1_000_000;
+    fn seek(&mut self, d: PlaybackPos) {
+        let pos = d.0.as_micros() as u64 * self.sample_rate() / 1_000_000;
         self.stream.seek_absgp_pg(pos).unwrap();
     }
 
@@ -95,6 +108,7 @@ impl AudioSource {
 }
 
 const MAX_VOLUME: u8 = 15;
+const FADE_TIME: Duration = Duration::from_millis(500);
 const DEFAULT_VOLUME: u8 = 11;
 
 #[derive(Copy, Clone, Serialize, Deserialize)]
@@ -111,6 +125,10 @@ impl Default for Volume {
 }
 
 impl Volume {
+    fn new(amt: u8) -> Self {
+        assert!(amt <= MAX_VOLUME);
+        Volume { amt }
+    }
     fn apply(&self, i: i16) -> i16 {
         i >> (MAX_VOLUME.saturating_sub(self.amt))
     }
@@ -126,9 +144,20 @@ impl std::ops::SubAssign<u8> for Volume {
         self.amt = self.amt.saturating_sub(other);
     }
 }
+impl std::ops::Mul<Volume> for Volume {
+    type Output = Self;
+    fn mul(self, other: Self) -> Self {
+        let reduction1 = MAX_VOLUME - self.amt;
+        let reduction2 = MAX_VOLUME - other.amt;
+        let reduction = reduction1 + reduction2;
+        Volume::new(MAX_VOLUME.saturating_sub(reduction))
+    }
+}
 
 enum PlayerState {
+    FadeIn(AudioSource, PlaybackPos),
     Playing(AudioSource),
+    FadeOut(AudioSource, PlaybackPos),
     Paused(AudioSource),
     Idle,
 }
@@ -151,21 +180,26 @@ impl Player {
         &mut self.volume
     }
 
-    pub fn play_file(&mut self, file_path: impl AsRef<Path>, start_pos: Option<Duration>) {
+    pub fn play_file(&mut self, file_path: impl AsRef<Path>, start_pos: Option<PlaybackPos>) {
         let mut source = AudioSource::new(file_path, self.output.sample_rate());
 
         if let Some(start_pos) = start_pos {
             source.seek(start_pos);
         }
 
-        self.state = PlayerState::Playing(source);
+        let pos = source.current_pos();
+
+        self.state = PlayerState::FadeIn(source, pos);
     }
 
     pub fn pause(&mut self) {
         let mut dummy = PlayerState::Idle;
         std::mem::swap(&mut dummy, &mut self.state);
         self.state = match dummy {
-            PlayerState::Playing(i) => PlayerState::Paused(i),
+            PlayerState::Playing(i) => {
+                let pos = i.current_pos();
+                PlayerState::FadeOut(i, pos)
+            }
             o => o,
         }
     }
@@ -174,7 +208,10 @@ impl Player {
         let mut dummy = PlayerState::Idle;
         std::mem::swap(&mut dummy, &mut self.state);
         self.state = match dummy {
-            PlayerState::Paused(i) => PlayerState::Playing(i),
+            PlayerState::Paused(i) => {
+                let pos = i.current_pos();
+                PlayerState::FadeIn(i, pos)
+            }
             o => o,
         }
     }
@@ -186,30 +223,93 @@ impl Player {
             false
         }
     }
-
-    pub fn playback_pos(&self) -> Option<Duration> {
+    pub fn playing(&self) -> bool {
         match self.state {
-            PlayerState::Paused(ref s) | PlayerState::Playing(ref s) => Some(s.current_pos()),
+            PlayerState::FadeOut(_, _) | PlayerState::FadeIn(_, _) | PlayerState::Playing(_) => {
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub fn playback_pos(&self) -> Option<PlaybackPos> {
+        match self.state {
+            PlayerState::Paused(ref s)
+            | PlayerState::FadeOut(ref s, _)
+            | PlayerState::Playing(ref s)
+            | PlayerState::FadeIn(ref s, _) => Some(s.current_pos()),
             PlayerState::Idle => None,
         }
     }
 
     pub fn push_samples(&mut self) {
-        match &mut self.state {
-            PlayerState::Playing(srr) => {
-                if let Some(mut pck_samples) = srr.next_chunk() {
-                    for s in &mut pck_samples {
-                        *s = self.volume.apply(*s);
-                    }
-                    if pck_samples.len() > 0 {
-                        self.output.play_buf(&pck_samples);
-                    }
+        fn play_chunk(
+            srr: &mut AudioSource,
+            output: &mut crate::sound::AudioOutput,
+            volume: Volume,
+        ) -> Option<PlayerState> {
+            if let Some(mut pck_samples) = srr.next_chunk() {
+                for s in &mut pck_samples {
+                    *s = volume.apply(*s);
+                }
+                if pck_samples.len() > 0 {
+                    output.play_buf(&pck_samples);
+                }
+                None
+            } else {
+                Some(PlayerState::Idle)
+            }
+        }
+
+        fn fade_step(begin: PlaybackPos, current: PlaybackPos, max_step: u64) -> u64 {
+            let diff = current.0 - begin.0;
+            (diff.as_millis() as u64 * max_step / FADE_TIME.as_millis() as u64).min(max_step)
+        }
+
+        let mut dummy = PlayerState::Idle;
+        std::mem::swap(&mut dummy, &mut self.state);
+
+        self.state = match dummy {
+            PlayerState::FadeIn(mut srr, begin) => {
+                let max_step = MAX_VOLUME as u64;
+                let step = fade_step(begin, srr.current_pos(), max_step);
+                let fade_vol = Volume::new(step as u8);
+
+                if let Some(s) = play_chunk(&mut srr, &mut self.output, fade_vol * self.volume) {
+                    s
                 } else {
-                    self.state = PlayerState::Idle;
+                    if step == max_step {
+                        PlayerState::Playing(srr)
+                    } else {
+                        PlayerState::FadeIn(srr, begin)
+                    }
                 }
             }
-            PlayerState::Paused(_) | PlayerState::Idle => {
+            PlayerState::FadeOut(mut srr, begin) => {
+                let max_step = MAX_VOLUME as u64;
+                let step = fade_step(begin, srr.current_pos(), max_step);
+                let fade_vol = Volume::new((max_step - step) as u8);
+
+                if let Some(s) = play_chunk(&mut srr, &mut self.output, fade_vol * self.volume) {
+                    s
+                } else {
+                    if step == max_step {
+                        PlayerState::Paused(srr)
+                    } else {
+                        PlayerState::FadeOut(srr, begin)
+                    }
+                }
+            }
+            PlayerState::Playing(mut srr) => {
+                if let Some(s) = play_chunk(&mut srr, &mut self.output, self.volume) {
+                    s
+                } else {
+                    PlayerState::Playing(srr)
+                }
+            }
+            s @ PlayerState::Paused(_) | s @ PlayerState::Idle => {
                 self.output.play_buf(MUTED_BUF);
+                s
             }
         }
     }
