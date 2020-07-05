@@ -190,10 +190,10 @@ fn main() {
                     ))
                     .unwrap();
                 player.pause();
-                stopped = true;
             }
             Ok(Event::Shutdown) => {
-                break;
+                player.pause();
+                stopped = true;
             }
             Err(mpsc::TryRecvError::Empty) => {}
             Err(mpsc::TryRecvError::Disconnected) => {

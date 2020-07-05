@@ -196,7 +196,7 @@ impl Player {
         let mut dummy = PlayerState::Idle;
         std::mem::swap(&mut dummy, &mut self.state);
         self.state = match dummy {
-            PlayerState::Playing(i) => {
+            PlayerState::Playing(i) | PlayerState::FadeIn(i, _) => {
                 let pos = i.current_pos();
                 PlayerState::FadeOut(i, pos)
             }
