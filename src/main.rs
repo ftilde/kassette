@@ -1,6 +1,6 @@
 use crate::rfid::Uid;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 mod led;
 mod media_definition;
@@ -48,6 +48,24 @@ enum Event {
     IncreaseVolume,
     DecreaseVolume,
     Shutdown,
+}
+
+enum CardState {
+    Current(Uid),
+    Previous(Uid, SystemTime),
+    Nothing,
+}
+
+const MIN_TIME_FOR_CONTEXT: Duration = Duration::from_secs(10);
+const MAX_CONTEXT_TIME: Duration = Duration::from_secs(60);
+const PAUSE_TO_CONTEXT_RATION: u32 = 10;
+
+fn required_context(stop_time: Duration) -> Duration {
+    let relevant = stop_time
+        .checked_sub(MIN_TIME_FOR_CONTEXT)
+        .unwrap_or(Duration::from_secs(0));
+
+    (relevant / PAUSE_TO_CONTEXT_RATION).min(MAX_CONTEXT_TIME)
 }
 
 fn main() {
@@ -135,10 +153,10 @@ fn main() {
     })
     .unwrap();
 
-    let mut last_card = None;
+    let mut card_state = CardState::Nothing;
 
-    if let Some((uid, pos)) = save_state.playback_pos() {
-        last_card = Some(uid);
+    if let Some((uid, pos, stop_time)) = save_state.playback_state() {
+        card_state = CardState::Previous(uid, stop_time);
         if let Some(file) = file_map.get(&uid) {
             player.load_file(file, Some(pos));
         } else {
@@ -166,7 +184,18 @@ fn main() {
                 *player.volume() -= 1;
             }
             Ok(Event::Play(uid)) => {
-                if last_card == Some(uid) && !player.idle() {
+                let (old_uid, remove_time) = match card_state {
+                    CardState::Previous(old_uid, remove_time) => (Some(old_uid), Some(remove_time)),
+                    CardState::Current(old_uid) => (Some(old_uid), None),
+                    CardState::Nothing => (None, None),
+                };
+                if old_uid == Some(uid) && !player.idle() {
+                    if let Some(remove_time) = remove_time {
+                        let stop_time = SystemTime::now()
+                            .duration_since(remove_time)
+                            .unwrap_or(Duration::from_millis(0));
+                        player.rewind(required_context(stop_time));
+                    }
                     player.play();
                 } else {
                     if let Some(file) = file_map.get(&uid) {
@@ -175,8 +204,8 @@ fn main() {
                     } else {
                         eprintln!("Unkown card: {}", uid);
                     }
-                    last_card = Some(uid);
                 }
+                card_state = CardState::Current(uid);
                 led_cmd_sink
                     .send(led::LedCommand::Blink(Duration::from_millis(500)))
                     .unwrap();
@@ -189,6 +218,9 @@ fn main() {
                         Duration::from_millis(200),
                     ))
                     .unwrap();
+                if let CardState::Current(uid) = card_state {
+                    card_state = CardState::Previous(uid, SystemTime::now());
+                }
                 player.pause();
             }
             Ok(Event::Shutdown) => {
@@ -211,12 +243,12 @@ fn main() {
         ))
         .unwrap();
 
-    let playback_pos = if let (Some(uid), Some(pos)) = (last_card, player.playback_pos()) {
-        Some((uid, pos))
-    } else {
-        None
+    let playback_pos = match (card_state, player.playback_pos()) {
+        (CardState::Previous(uid, remove_time), Some(pos)) => Some((uid, pos, remove_time)),
+        (CardState::Current(uid), Some(pos)) => Some((uid, pos, SystemTime::now())),
+        _ => None,
     };
-    save_state.set_playback_pos(playback_pos);
+    save_state.set_playback_state(playback_pos);
     save_state.set_volume(*player.volume());
     save_state.save(SAVESTATE_PATH);
 

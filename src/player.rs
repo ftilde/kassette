@@ -48,9 +48,10 @@ const MUTED_BUF: &[i16] = &[0; 1024];
 struct AudioSource {
     stream: OggStreamReader<std::fs::File>,
     resampler: Resampler,
+    seek_pos: u64,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct PlaybackPos(Duration);
 
 impl PlaybackPos {
@@ -81,6 +82,7 @@ impl AudioSource {
         AudioSource {
             stream: srr,
             resampler,
+            seek_pos: 0,
         }
     }
 
@@ -90,20 +92,29 @@ impl AudioSource {
 
     fn current_pos(&self) -> PlaybackPos {
         PlaybackPos(Duration::from_micros(
-            1_000_000 * self.stream.get_last_absgp().unwrap_or(0) / self.sample_rate(),
+            1_000_000 * self.stream.get_last_absgp().unwrap_or(self.seek_pos) / self.sample_rate(),
         ))
     }
 
     fn seek(&mut self, d: PlaybackPos) {
         let pos = d.0.as_micros() as u64 * self.sample_rate() / 1_000_000;
+        self.seek_pos = pos;
         self.stream.seek_absgp_pg(pos).unwrap();
     }
 
     fn next_chunk(&mut self) -> Option<Vec<i16>> {
-        self.stream
-            .read_dec_packet_itl()
-            .unwrap()
-            .map(|pck_samples| self.resampler.resample_nearest(&pck_samples))
+        match self.stream.read_dec_packet_itl() {
+            Ok(pck_samples) => {
+                pck_samples.map(|pck_samples| self.resampler.resample_nearest(&pck_samples))
+            }
+            Err(lewton::VorbisError::BadAudio(lewton::audio::AudioReadError::AudioIsHeader)) => {
+                Some(Vec::new())
+            }
+            Err(e) => {
+                eprintln!("Error reading chunk: {}", e);
+                Some(Vec::new())
+            }
+        }
     }
 }
 
@@ -188,6 +199,24 @@ impl Player {
         }
 
         self.state = PlayerState::Paused(source);
+    }
+
+    pub fn rewind(&mut self, time: Duration) {
+        match self.state {
+            PlayerState::Paused(ref mut s)
+            | PlayerState::FadeOut(ref mut s, _)
+            | PlayerState::Playing(ref mut s)
+            | PlayerState::FadeIn(ref mut s, _) => {
+                let seek_pos = PlaybackPos(
+                    s.current_pos()
+                        .0
+                        .checked_sub(time)
+                        .unwrap_or(Duration::from_millis(0)),
+                );
+                s.seek(seek_pos);
+            }
+            PlayerState::Idle => {}
+        }
     }
 
     pub fn pause(&mut self) {

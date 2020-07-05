@@ -4,10 +4,18 @@ use miniserde::{json, Deserialize, Serialize};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
+use std::time::{Duration, SystemTime};
+
+#[derive(Serialize, Deserialize)]
+struct SerPlaybackState {
+    uid: u32,
+    playback_pos: u64,
+    stop_time: u64,
+}
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct SaveState {
-    playback_pos: Option<(u32, u64)>,
+    playback_state: Option<SerPlaybackState>,
     volume: Volume,
 }
 
@@ -23,12 +31,24 @@ impl SaveState {
         let buf = json::to_string(self);
         f.write_all(buf.as_bytes()).unwrap();
     }
-    pub fn playback_pos(&self) -> Option<(Uid, PlaybackPos)> {
-        self.playback_pos
-            .map(|(uid, duration)| (Uid(uid), PlaybackPos::from_millis(duration)))
+    pub fn playback_state(&self) -> Option<(Uid, PlaybackPos, SystemTime)> {
+        self.playback_state.as_ref().map(|sbp| {
+            (
+                Uid(sbp.uid),
+                PlaybackPos::from_millis(sbp.playback_pos),
+                SystemTime::UNIX_EPOCH + Duration::from_millis(sbp.stop_time),
+            )
+        })
     }
-    pub fn set_playback_pos(&mut self, playback_pos: Option<(Uid, PlaybackPos)>) {
-        self.playback_pos = playback_pos.map(|(uid, duration)| (uid.0, duration.as_millis() as u64))
+    pub fn set_playback_state(&mut self, playback_pos: Option<(Uid, PlaybackPos, SystemTime)>) {
+        self.playback_state = playback_pos.map(|(uid, playback_pos, stop_time)| SerPlaybackState {
+            uid: uid.0,
+            playback_pos: playback_pos.as_millis() as u64,
+            stop_time: stop_time
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+        })
     }
 
     pub fn volume(&self) -> Volume {
