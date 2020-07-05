@@ -109,7 +109,7 @@ fn main() {
 
     let (led_cmd_sink, led_cmd_source) = mpsc::channel();
 
-    let _ = std::thread::Builder::new()
+    let led_thread = std::thread::Builder::new()
         .name("led_thread".to_owned())
         .spawn(move || {
             while let Ok(cmd) = led_cmd_source.recv() {
@@ -203,6 +203,14 @@ fn main() {
         player.push_samples();
     }
 
+    led_cmd_sink
+        .send(led::LedCommand::DoubleBlink(
+            Duration::from_millis(200),
+            Duration::from_millis(100),
+            Duration::from_millis(200),
+        ))
+        .unwrap();
+
     let playback_pos = if let (Some(uid), Some(pos)) = (last_card, player.playback_pos()) {
         Some((uid, pos))
     } else {
@@ -211,6 +219,10 @@ fn main() {
     save_state.set_playback_pos(playback_pos);
     save_state.set_volume(*player.volume());
     save_state.save(SAVESTATE_PATH);
+
+    // Make sure to execute all remaining led commands, then stop (with inactive led!)
+    std::mem::drop(led_cmd_sink);
+    led_thread.join().unwrap();
 
     if is_init() {
         nix::sys::reboot::reboot(nix::sys::reboot::RebootMode::RB_POWER_OFF).unwrap();
