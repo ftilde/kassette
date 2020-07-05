@@ -140,10 +140,9 @@ fn main() {
     if let Some((uid, pos)) = save_state.playback_pos() {
         last_card = Some(uid);
         if let Some(file) = file_map.get(&uid) {
-            player.play_file(file, Some(pos));
-            player.pause();
+            player.load_file(file, Some(pos));
         } else {
-            eprintln!("Cannot resume for unknown uid: {:x}", uid.0);
+            eprintln!("Cannot load unknown uid: {:x}", uid.0);
         }
     }
 
@@ -168,10 +167,11 @@ fn main() {
             }
             Ok(Event::Play(uid)) => {
                 if last_card == Some(uid) && !player.idle() {
-                    player.resume();
+                    player.play();
                 } else {
                     if let Some(file) = file_map.get(&uid) {
-                        player.play_file(file, None);
+                        player.load_file(file, None);
+                        player.play();
                     } else {
                         eprintln!("Unkown card: {}", uid);
                     }

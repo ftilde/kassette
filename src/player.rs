@@ -180,16 +180,14 @@ impl Player {
         &mut self.volume
     }
 
-    pub fn play_file(&mut self, file_path: impl AsRef<Path>, start_pos: Option<PlaybackPos>) {
+    pub fn load_file(&mut self, file_path: impl AsRef<Path>, start_pos: Option<PlaybackPos>) {
         let mut source = AudioSource::new(file_path, self.output.sample_rate());
 
         if let Some(start_pos) = start_pos {
             source.seek(start_pos);
         }
 
-        let pos = source.current_pos();
-
-        self.state = PlayerState::FadeIn(source, pos);
+        self.state = PlayerState::Paused(source);
     }
 
     pub fn pause(&mut self) {
@@ -204,7 +202,7 @@ impl Player {
         }
     }
 
-    pub fn resume(&mut self) {
+    pub fn play(&mut self) {
         let mut dummy = PlayerState::Idle;
         std::mem::swap(&mut dummy, &mut self.state);
         self.state = match dummy {
@@ -212,6 +210,7 @@ impl Player {
                 let pos = i.current_pos();
                 PlayerState::FadeIn(i, pos)
             }
+            PlayerState::FadeOut(i, pos) => PlayerState::FadeIn(i, pos),
             o => o,
         }
     }
