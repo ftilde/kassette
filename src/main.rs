@@ -1,4 +1,5 @@
 use crate::rfid::Uid;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, SystemTime};
 
@@ -12,12 +13,26 @@ mod rotary_encoder;
 mod save_state;
 mod sound;
 
+use argh::FromArgs;
+
+#[derive(FromArgs)]
+/// Reach new heights.
+struct Options {
+    /// data block device that will be mounted on start when running as pid1
+    #[argh(option, default = r#"PathBuf::from("/dev/mmcblk0p2")"#)]
+    data_device: PathBuf,
+
+    /// spi device that is used to communicate with the rfid reader
+    #[argh(option, default = r#"PathBuf::from("/dev/spidev0.0")"#)]
+    rfid_device: PathBuf,
+}
+
 fn is_init() -> bool {
     std::process::id() == 1
 }
 
 /// Mounting stuff etc.
-fn general_setup() {
+fn general_setup(options: &Options) {
     if is_init() {
         println!("Running as init.");
         nix::mount::mount::<str, str, str, str>(
@@ -32,6 +47,15 @@ fn general_setup() {
             None,
             "/proc",
             Some("proc"),
+            nix::mount::MsFlags::empty(),
+            None,
+        )
+        .unwrap();
+
+        nix::mount::mount::<PathBuf, str, str, str>(
+            Some(&options.data_device),
+            config::DATA_MOUNT_PATH,
+            None,
             nix::mount::MsFlags::empty(),
             None,
         )
@@ -55,33 +79,41 @@ enum CardState {
     Nothing,
 }
 
-fn required_context(stop_time: Duration) -> Duration {
+fn resume_rewind_time(stop_time: Duration) -> Duration {
     let relevant = stop_time
         .checked_sub(config::MIN_TIME_FOR_CONTEXT)
         .unwrap_or(Duration::from_secs(0));
 
-    (relevant / config::PAUSE_TO_CONTEXT_RATION).min(config::MAX_CONTEXT_TIME)
+    let context = (relevant / config::PAUSE_TO_CONTEXT_RATION).min(config::MAX_CONTEXT_TIME);
+
+    // We fade in and out, so we have to rewind for the fade-out before the pause (because that
+    // might not have been completely audible) and for the fade-in that will be done when resuming
+    // (again, might not be completely audible).
+    context + 2 * config::FADE_TIME
 }
 
 fn main() {
-    general_setup();
+    let options: Options = argh::from_env();
 
-    let file_map = if is_init() {
-        media_definition::load_media_definition("", "") //TODO
+    general_setup(&options);
+
+    let data_root = if is_init() {
+        config::DATA_MOUNT_PATH
     } else {
-        let f = std::io::Cursor::new(
-            &r"
-            0xa930fcb8 mcd.ogg
-            0xc3aa960c mcd2.ogg
-            "[..],
-        );
-        media_definition::parse_media_definition(f, "")
-        //load_media_definition("./rfid_file_definition.txt", "")
+        "./"
     };
+    let data_root = Path::new(data_root);
+
+    let file_map = media_definition::load_media_definition(
+        data_root.join(config::MEDIA_DEFINITION_FILE),
+        data_root,
+    );
+    let save_state_path = data_root.join(config::SAVESTATE_FILE);
 
     let gpio = rppal::gpio::Gpio::new().unwrap();
     let mut rfid_reader =
-        rfid::RfidReader::new("/dev/spidev0.0", gpio.get(pins::RFID_INTERRUPT).unwrap()).unwrap();
+        rfid::RfidReader::new(options.rfid_device, gpio.get(pins::RFID_INTERRUPT).unwrap())
+            .unwrap();
 
     let (event_sink, event_source) = mpsc::channel();
     let rfid_event_sink = event_sink.clone();
@@ -116,7 +148,7 @@ fn main() {
         println!("Event: {:0x?}", e)
     });
 
-    let mut save_state = save_state::SaveState::load(config::SAVESTATE_PATH).unwrap_or_default();
+    let mut save_state = save_state::SaveState::load(&save_state_path).unwrap_or_default();
 
     let mut led = led::Led::new(gpio.get(pins::LED_OUTPUT_PIN).unwrap());
 
@@ -189,7 +221,7 @@ fn main() {
                         let stop_time = SystemTime::now()
                             .duration_since(remove_time)
                             .unwrap_or(Duration::from_millis(0));
-                        player.rewind(required_context(stop_time));
+                        player.rewind(resume_rewind_time(stop_time));
                     }
                     player.play();
                 } else {
@@ -245,7 +277,7 @@ fn main() {
     };
     save_state.set_playback_state(playback_pos);
     save_state.set_volume(*player.volume());
-    save_state.save(config::SAVESTATE_PATH);
+    save_state.save(&save_state_path);
 
     // Make sure to execute all remaining led commands, then stop (with inactive led!)
     std::mem::drop(led_cmd_sink);
