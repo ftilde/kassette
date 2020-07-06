@@ -49,6 +49,7 @@ struct AudioSource {
     stream: OggStreamReader<std::fs::File>,
     resampler: Resampler,
     seek_pos: u64,
+    current_pos: u64,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -83,6 +84,7 @@ impl AudioSource {
             stream: srr,
             resampler,
             seek_pos: 0,
+            current_pos: 0,
         }
     }
 
@@ -92,7 +94,7 @@ impl AudioSource {
 
     fn current_pos(&self) -> PlaybackPos {
         PlaybackPos(Duration::from_micros(
-            1_000_000 * self.stream.get_last_absgp().unwrap_or(self.seek_pos) / self.sample_rate(),
+            1_000_000 * self.current_pos / self.sample_rate(),
         ))
     }
 
@@ -100,13 +102,16 @@ impl AudioSource {
         let pos = d.0.as_micros() as u64 * self.sample_rate() / 1_000_000;
         self.seek_pos = pos;
         self.stream.seek_absgp_pg(pos).unwrap();
+        self.current_pos = pos;
     }
 
     fn next_chunk(&mut self) -> Option<Vec<i16>> {
         match self.stream.read_dec_packet_itl() {
-            Ok(pck_samples) => {
-                pck_samples.map(|pck_samples| self.resampler.resample_nearest(&pck_samples))
+            Ok(Some(pck_samples)) => {
+                self.current_pos += pck_samples.len() as u64 / 2;
+                Some(self.resampler.resample_nearest(&pck_samples))
             }
+            Ok(None) => None,
             Err(lewton::VorbisError::BadAudio(lewton::audio::AudioReadError::AudioIsHeader)) => {
                 Some(Vec::new())
             }
@@ -151,15 +156,6 @@ impl std::ops::AddAssign<u8> for Volume {
 impl std::ops::SubAssign<u8> for Volume {
     fn sub_assign(&mut self, other: u8) {
         self.amt = self.amt.saturating_sub(other);
-    }
-}
-impl std::ops::Mul<Volume> for Volume {
-    type Output = Self;
-    fn mul(self, other: Self) -> Self {
-        let reduction1 = MAX_VOLUME - self.amt;
-        let reduction2 = MAX_VOLUME - other.amt;
-        let reduction = reduction1 + reduction2;
-        Volume::new(MAX_VOLUME.saturating_sub(reduction))
     }
 }
 
@@ -287,10 +283,9 @@ impl Player {
             }
         }
 
-        fn fade_step(begin: PlaybackPos, current: PlaybackPos, max_step: u64) -> u64 {
+        fn fade_factor(begin: PlaybackPos, current: PlaybackPos) -> f32 {
             let diff = current.0 - begin.0;
-            (diff.as_millis() as u64 * max_step / crate::config::FADE_TIME.as_millis() as u64)
-                .min(max_step)
+            (diff.as_millis() as f32 / crate::config::FADE_TIME.as_millis() as f32).min(1.0)
         }
 
         let mut dummy = PlayerState::Idle;
@@ -298,14 +293,13 @@ impl Player {
 
         self.state = match dummy {
             PlayerState::FadeIn(mut srr, begin) => {
-                let max_step = MAX_VOLUME as u64;
-                let step = fade_step(begin, srr.current_pos(), max_step);
-                let fade_vol = Volume::new(step as u8);
+                let factor = fade_factor(begin, srr.current_pos());
+                let fade_vol = Volume::new((self.volume.amt as f32 * factor).round() as u8);
 
-                if let Some(s) = play_chunk(&mut srr, &mut self.output, fade_vol * self.volume) {
+                if let Some(s) = play_chunk(&mut srr, &mut self.output, fade_vol) {
                     s
                 } else {
-                    if step == max_step {
+                    if factor >= 1.0 {
                         PlayerState::Playing(srr)
                     } else {
                         PlayerState::FadeIn(srr, begin)
@@ -313,14 +307,13 @@ impl Player {
                 }
             }
             PlayerState::FadeOut(mut srr, begin) => {
-                let max_step = MAX_VOLUME as u64;
-                let step = fade_step(begin, srr.current_pos(), max_step);
-                let fade_vol = Volume::new((max_step - step) as u8);
+                let factor = fade_factor(begin, srr.current_pos());
+                let fade_vol = Volume::new((self.volume.amt as f32 * (1.0 - factor)).round() as u8);
 
-                if let Some(s) = play_chunk(&mut srr, &mut self.output, fade_vol * self.volume) {
+                if let Some(s) = play_chunk(&mut srr, &mut self.output, fade_vol) {
                     s
                 } else {
-                    if step == max_step {
+                    if factor >= 1.0 {
                         PlayerState::Paused(srr)
                     } else {
                         PlayerState::FadeOut(srr, begin)

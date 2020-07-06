@@ -84,7 +84,7 @@ fn resume_rewind_time(stop_time: Duration) -> Duration {
         .checked_sub(config::MIN_TIME_FOR_CONTEXT)
         .unwrap_or(Duration::from_secs(0));
 
-    let context = (relevant / config::PAUSE_TO_CONTEXT_RATION).min(config::MAX_CONTEXT_TIME);
+    let context = (relevant / config::PAUSE_TO_CONTEXT_RATIO).min(config::MAX_CONTEXT_TIME);
 
     // We fade in and out, so we have to rewind for the fade-out before the pause (because that
     // might not have been completely audible) and for the fade-in that will be done when resuming
