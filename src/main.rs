@@ -2,6 +2,7 @@ use crate::rfid::Uid;
 use std::sync::mpsc;
 use std::time::{Duration, SystemTime};
 
+mod config;
 mod led;
 mod media_definition;
 mod pins;
@@ -10,8 +11,6 @@ mod rfid;
 mod rotary_encoder;
 mod save_state;
 mod sound;
-
-const SAVESTATE_PATH: &str = "savestate.json";
 
 fn is_init() -> bool {
     std::process::id() == 1
@@ -56,16 +55,12 @@ enum CardState {
     Nothing,
 }
 
-const MIN_TIME_FOR_CONTEXT: Duration = Duration::from_secs(10);
-const MAX_CONTEXT_TIME: Duration = Duration::from_secs(60);
-const PAUSE_TO_CONTEXT_RATION: u32 = 10;
-
 fn required_context(stop_time: Duration) -> Duration {
     let relevant = stop_time
-        .checked_sub(MIN_TIME_FOR_CONTEXT)
+        .checked_sub(config::MIN_TIME_FOR_CONTEXT)
         .unwrap_or(Duration::from_secs(0));
 
-    (relevant / PAUSE_TO_CONTEXT_RATION).min(MAX_CONTEXT_TIME)
+    (relevant / config::PAUSE_TO_CONTEXT_RATION).min(config::MAX_CONTEXT_TIME)
 }
 
 fn main() {
@@ -121,7 +116,7 @@ fn main() {
         println!("Event: {:0x?}", e)
     });
 
-    let mut save_state = save_state::SaveState::load(SAVESTATE_PATH).unwrap_or_default();
+    let mut save_state = save_state::SaveState::load(config::SAVESTATE_PATH).unwrap_or_default();
 
     let mut led = led::Led::new(gpio.get(pins::LED_OUTPUT_PIN).unwrap());
 
@@ -250,7 +245,7 @@ fn main() {
     };
     save_state.set_playback_state(playback_pos);
     save_state.set_volume(*player.volume());
-    save_state.save(SAVESTATE_PATH);
+    save_state.save(config::SAVESTATE_PATH);
 
     // Make sure to execute all remaining led commands, then stop (with inactive led!)
     std::mem::drop(led_cmd_sink);

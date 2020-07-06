@@ -119,8 +119,6 @@ impl AudioSource {
 }
 
 const MAX_VOLUME: u8 = 15;
-const FADE_TIME: Duration = Duration::from_millis(500);
-const DEFAULT_VOLUME: u8 = 11;
 
 #[derive(Copy, Clone, Serialize, Deserialize)]
 pub struct Volume {
@@ -130,7 +128,7 @@ pub struct Volume {
 impl Default for Volume {
     fn default() -> Self {
         Volume {
-            amt: DEFAULT_VOLUME,
+            amt: crate::config::DEFAULT_VOLUME,
         }
     }
 }
@@ -291,7 +289,8 @@ impl Player {
 
         fn fade_step(begin: PlaybackPos, current: PlaybackPos, max_step: u64) -> u64 {
             let diff = current.0 - begin.0;
-            (diff.as_millis() as u64 * max_step / FADE_TIME.as_millis() as u64).min(max_step)
+            (diff.as_millis() as u64 * max_step / crate::config::FADE_TIME.as_millis() as u64)
+                .min(max_step)
         }
 
         let mut dummy = PlayerState::Idle;

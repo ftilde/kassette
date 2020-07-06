@@ -1,7 +1,5 @@
 use std::time::{Duration, Instant};
 
-const AUDIO_BUF_SIZE: Duration = Duration::from_millis(100);
-
 pub struct AudioOutput {
     pcm: alsa::pcm::PCM,
     current_sample_num: u64,
@@ -116,7 +114,9 @@ impl AudioOutput {
             Duration::from_micros(self.current_sample_num * 1_000_000 / self.sample_rate);
         let run_time = self.start_time.elapsed();
 
-        if let Some(sleep_time) = sample_buffer_time.checked_sub(run_time + AUDIO_BUF_SIZE) {
+        if let Some(sleep_time) =
+            sample_buffer_time.checked_sub(run_time + crate::config::AUDIO_BUF_SIZE)
+        {
             //eprintln!("Sleeping for {:?}", sleep_time);
             std::thread::sleep(sleep_time);
         }
