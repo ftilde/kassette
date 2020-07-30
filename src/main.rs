@@ -52,14 +52,29 @@ fn general_setup(options: &Options) {
         )
         .unwrap();
 
-        nix::mount::mount::<PathBuf, str, str, str>(
-            Some(&options.data_device),
-            config::DATA_MOUNT_PATH,
-            None,
-            nix::mount::MsFlags::empty(),
-            None,
-        )
-        .unwrap();
+        let mut sleep_duration = Duration::from_millis(10);
+        loop {
+            match nix::mount::mount::<PathBuf, str, str, str>(
+                Some(&options.data_device),
+                config::DATA_MOUNT_PATH,
+                Some("ext4"),
+                nix::mount::MsFlags::empty(),
+                None,
+            ) {
+                Ok(_) => break,
+                Err(nix::Error::Sys(nix::errno::Errno::ENOENT)) => {
+                    eprintln!(
+                        "Waiting for sd card {}...",
+                        options.data_device.to_string_lossy()
+                    );
+                    std::thread::sleep(sleep_duration);
+                    sleep_duration *= 2;
+                }
+                Err(o) => {
+                    panic!("Error mounting sd card: {}", o);
+                }
+            }
+        }
     } else {
         println!("Running as regular process.");
     }
@@ -93,7 +108,23 @@ fn resume_rewind_time(stop_time: Duration) -> Duration {
 }
 
 fn main() {
-    let options: Options = argh::from_env();
+    //let options: Options = argh::from_env();
+    //eprintln!("Argv is: {:?}", std::env::args());
+    //let mut entries = std::fs::read_dir("/dev")
+    //    .unwrap()
+    //    .map(|e| {
+    //        let s: String = e.unwrap().path().to_string_lossy().to_string();
+    //        s
+    //    })
+    //.collect::<Vec<_>>();
+    //entries.sort();
+    //for entry in entries {
+    //    print!("{} ", entry);
+    //}
+    let options: Options = Options {
+        data_device: PathBuf::from("/dev/mmcblk0p2"),
+        rfid_device: PathBuf::from("/dev/spidev0.0"),
+    };
 
     general_setup(&options);
 

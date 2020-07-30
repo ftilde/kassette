@@ -2,3 +2,4 @@ ensure it works as init
 sleep timer
 proper logging
 remove questionable unwraps
+umount sd card before powerdown

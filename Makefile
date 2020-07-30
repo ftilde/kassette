@@ -78,6 +78,9 @@ $(RAMFS_ROOT)/dev:
 $(RAMFS_ROOT)/proc:
 	mkdir -p $@
 
+$(RAMFS_ROOT)/data:
+	mkdir -p $@
+
 $(RAMFS_ROOT)/init: $(INIT)
 	cp $< $@
 
@@ -116,7 +119,7 @@ $(RAMFS_ROOT)/usr/lib/libgcc_s.so: $(DL_FOLDER)/gcclibs.tar.xz
 		$(RAMFS_ROOT)/usr/share/locale\
 		$(RAMFS_ROOT)/usr/share/info\
 
-$(INITRAMFS): $(RAMFS_LIBS) $(RAMFS_ROOT)/lib $(RAMFS_ROOT)/proc $(RAMFS_ROOT)/dev $(RAMFS_ROOT)/init
+$(INITRAMFS): $(RAMFS_LIBS) $(RAMFS_ROOT)/lib $(RAMFS_ROOT)/proc $(RAMFS_ROOT)/dev $(RAMFS_ROOT)/init $(RAMFS_ROOT)/data
 	cd $(RAMFS_ROOT) && find | cpio -ov --format=newc | gzip -9 > ../$@
 
 $(KERNEL_DIR)/Makefile:
