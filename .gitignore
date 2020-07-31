@@ -2,8 +2,9 @@
 /build_env
 /download
 /ramfs_root
-/toolchain
+/toolchain*
 /linux
+/alsa-lib-*
 initramfs-linux.img
 vmlinuz-linux
 media_definition.txt

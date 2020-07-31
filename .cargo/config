@@ -1,3 +1,7 @@
 [target.arm-unknown-linux-gnueabihf]
 linker = "toolchain/arm-unknown-linux-gnueabihf/bin/armv6l-unknown-linux-gnueabihf-gcc"
 
+[target.arm-unknown-linux-musleabihf]
+#linker = "toolchain_musl/bin/arm-linux-musleabihf-ld"
+rustflags=["-C","linker-flavor=ld.lld"]
+#rustflags=["-C", "target-feature=+crt-static"]

@@ -2,13 +2,15 @@ all: $(PDF)
 
 DL_FOLDER=download
 TOOLCHAIN_FOLDER=toolchain
+TOOLCHAIN_FOLDER_MUSL=toolchain_musl
 RAMFS_ROOT=ramfs_root
 BUILD_ENV_FOLDER=build_env
 CROSS_COMPILE_PREFIX=$(TOOLCHAIN_FOLDER)/arm-unknown-linux-gnueabihf/bin/armv6l-unknown-linux-gnueabihf-
 CC=$(CROSS_COMPILE_PREFIX)gcc
+CROSS_COMPILE_PREFIX_MUSL=$(TOOLCHAIN_FOLDER_MUSL)/bin/arm-linux-musleabihf-
+CC_MUSL=$(CROSS_COMPILE_PREFIX_MUSL)gcc
 PACKAGE_ARCHIVES=$(DL_FOLDER)/alsa.tar.xz $(DL_FOLDER)/glibc.tar.xz $(DL_FOLDER)/gcclibs.tar.xz
 BUILD_LIBC=$(BUILD_ENV_FOLDER)/usr/lib/libc.so
-RAMFS_LIBS=$(RAMFS_ROOT)/usr/lib/libc.so $(RAMFS_ROOT)/usr/lib/libasound.so $(RAMFS_ROOT)/usr/lib/libgcc_s.so
 INITRAMFS=initramfs-linux.img
 KERNEL_DIR=linux
 KERNEL_REPO=https://github.com/raspberrypi/linux
@@ -19,12 +21,14 @@ RPI_CONFIG=config.txt
 
 #BUILD_TYPE=debug
 BUILD_TYPE=release
-TARGET=arm-unknown-linux-gnueabihf
+TARGET=arm-unknown-linux-musleabihf
 CARGO_FLAGS=--$(BUILD_TYPE) --target $(TARGET)
-INIT=target/arm-unknown-linux-gnueabihf/$(BUILD_TYPE)/kassette
+INIT=target/arm-unknown-linux-musleabihf/$(BUILD_TYPE)/kassette
 
 SCP_TARGET=alarm@10.0.0.11:
 BOOT_MOUNT=/media/sdf1-usb-Generic_STORAGE_/
+
+ALSA=alsa-lib-1.2.3
 
 all: initramfs kernel
 
@@ -38,21 +42,49 @@ scp: $(INIT)
 sd: $(INITRAMFS) $(KERNEL) $(RPI_CONFIG)
 	cp $^ $(BOOT_MOUNT)
 
-$(DL_FOLDER)/alsa.tar.xz:
+$(DL_FOLDER)/$(ALSA).tar.bz2:
 	mkdir -p $(DL_FOLDER)
-	wget "http://mirror.archlinuxarm.org/armv6h/extra/alsa-lib-1.2.2-1-armv6h.pkg.tar.xz" -O $@
+	wget "ftp://ftp.alsa-project.org/pub/lib/$(ALSA).tar.bz2" -O $@
 
-$(DL_FOLDER)/glibc.tar.xz:
+$(DL_FOLDER)/musl-tools.tar.xz:
 	mkdir -p $(DL_FOLDER)
-	wget "http://mirror.archlinuxarm.org/armv6h/core/glibc-2.31-2-armv6h.pkg.tar.xz" -O $@
-
-$(DL_FOLDER)/gcclibs.tar.xz:
-	mkdir -p $(DL_FOLDER)
-	wget "http://mirror.archlinuxarm.org/armv6h/core/gcc-libs-9.3.0-1-armv6h.pkg.tar.xz" -O $@
+	wget "https://musl.cc/arm-linux-musleabihf-cross.tgz" -O $@
 
 $(DL_FOLDER)/x-tools.tar.xz:
 	mkdir -p $(DL_FOLDER)
 	wget "https://archlinuxarm.org/builder/xtools/x-tools6h.tar.xz" -O $@
+
+$(ALSA): $(DL_FOLDER)/$(ALSA).tar.bz2
+	tar -xf $<
+
+$(BUILD_ENV_FOLDER)/usr/lib/libasound.a: $(ALSA) $(CC_MUSL)
+	cd $(ALSA) && CFLAGS="-mtune=arm1176jzf-s" ./configure --enable-static --disable-shared CC="$(shell pwd)/$(CC_MUSL)" --host=arm-linux-musl --without-debug
+	cd $(ALSA) && $(MAKE) -j $(NPROC)
+	mkdir -p $(BUILD_ENV_FOLDER)/usr/lib
+	cp $(ALSA)/src/.libs/* $(BUILD_ENV_FOLDER)/usr/lib/
+
+$(BUILD_ENV_FOLDER)/usr/lib/libc.a: $(CC_MUSL)
+	mkdir -p $(BUILD_ENV_FOLDER)/usr/lib
+	cp $(TOOLCHAIN_FOLDER_MUSL)/arm-linux-musleabihf/lib/libc.a $@
+	#So... If we don't do the following, we get some "multiple definition"
+	# errors when linking. It seems like gcc thinks that they belong into libc
+	# and llvm (and thus rust) thinks they should be in compiler-rt, hence they
+	# appear twice. As we only need one definition of those (assuming they are
+	# compatible!), we just make the definition in the libc inaccessible by
+	# renaming them.
+	sed -i "s/__aeabi_memset/fooeabi_memset/g" $@
+	sed -i "s/__aeabi_memmove/fooeabi_memmove/g" $@
+	sed -i "s/__aeabi_memclr/fooeabi_memclr/g" $@
+	sed -i "s/__aeabi_memcpy/fooeabi_memcpy/g" $@
+
+alsa: $(BUILD_ENV_FOLDER)/usr/lib/libasound.a
+
+$(CC_MUSL): $(DL_FOLDER)/musl-tools.tar.xz
+	@echo $^
+	tar --touch -xf $^
+	chmod -R 777 $(TOOLCHAIN_FOLDER_MUSL) || true
+	rm -rf $(TOOLCHAIN_FOLDER_MUSL)
+	mv arm-linux-musleabihf-cross $(TOOLCHAIN_FOLDER_MUSL)
 
 $(CC): $(DL_FOLDER)/x-tools.tar.xz
 	tar --touch -xf $^
@@ -65,8 +97,9 @@ $(BUILD_LIBC): $(PACKAGE_ARCHIVES)
 	for archive in $^; do tar -C $(BUILD_ENV_FOLDER) -xf $$archive; done
 	sed -i "s#/usr/#$(BUILD_ENV_FOLDER)/usr/#g" $(BUILD_LIBC)
 
-$(INIT): $(BUILD_LIBC) $(CC) src/*.rs
+$(INIT): $(BUILD_ENV_FOLDER)/usr/lib/libasound.a $(BUILD_ENV_FOLDER)/usr/lib/libc.a $(CC_MUSL) src/*.rs
 	PKG_CONFIG_ALLOW_CROSS=1 cargo build $(CARGO_FLAGS)
+	$(CROSS_COMPILE_PREFIX_MUSL)strip $(INIT)
 
 $(RAMFS_ROOT)/lib:
 	mkdir -p $(RAMFS_ROOT)
@@ -84,42 +117,7 @@ $(RAMFS_ROOT)/data:
 $(RAMFS_ROOT)/init: $(INIT)
 	cp $< $@
 
-$(RAMFS_ROOT)/usr/lib/libc.so: $(DL_FOLDER)/glibc.tar.xz
-	mkdir -p $(RAMFS_ROOT)
-	tar -C $(RAMFS_ROOT) --touch -xf $<
-	rm -rf\
-		$(RAMFS_ROOT)/usr/lib/gconv\
-		$(RAMFS_ROOT)/usr/lib/*.a\
-		$(RAMFS_ROOT)/usr/share/i18n\
-		$(RAMFS_ROOT)/usr/share/locale\
-		$(RAMFS_ROOT)/usr/share/info\
-		$(RAMFS_ROOT)/usr/include\
-		$(RAMFS_ROOT)/usr/bin\
-
-$(RAMFS_ROOT)/usr/lib/libasound.so: $(DL_FOLDER)/alsa.tar.xz
-	mkdir -p $(RAMFS_ROOT)
-	tar -C $(RAMFS_ROOT) --touch -xf $<
-	rm -rf\
-		$(RAMFS_ROOT)/usr/include\
-		$(RAMFS_ROOT)/usr/bin\
-
-$(RAMFS_ROOT)/usr/lib/libgcc_s.so: $(DL_FOLDER)/gcclibs.tar.xz
-	mkdir -p $(RAMFS_ROOT)
-	tar -C $(RAMFS_ROOT) --touch -xf $<
-	rm -rf\
-		$(RAMFS_ROOT)/usr/lib/libgo.so.*\
-		$(RAMFS_ROOT)/usr/lib/libgphobos.so.*\
-		$(RAMFS_ROOT)/usr/lib/libstdc++.so.*\
-		$(RAMFS_ROOT)/usr/lib/libasan.so.*\
-		$(RAMFS_ROOT)/usr/lib/libgdruntime.so.*\
-		$(RAMFS_ROOT)/usr/lib/libgfortran.so.*\
-		$(RAMFS_ROOT)/usr/lib/libubsan.so.*\
-		$(RAMFS_ROOT)/usr/lib/libgomp.so.*\
-		$(RAMFS_ROOT)/usr/lib/libobjc.so.*\
-		$(RAMFS_ROOT)/usr/share/locale\
-		$(RAMFS_ROOT)/usr/share/info\
-
-$(INITRAMFS): $(RAMFS_LIBS) $(RAMFS_ROOT)/lib $(RAMFS_ROOT)/proc $(RAMFS_ROOT)/dev $(RAMFS_ROOT)/init $(RAMFS_ROOT)/data
+$(INITRAMFS): $(RAMFS_ROOT)/lib $(RAMFS_ROOT)/proc $(RAMFS_ROOT)/dev $(RAMFS_ROOT)/init $(RAMFS_ROOT)/data
 	cd $(RAMFS_ROOT) && find | cpio -ov --format=newc | gzip -9 > ../$@
 
 $(KERNEL_DIR)/Makefile:
@@ -140,4 +138,4 @@ clean:
 	chmod -R 777 $(RAMFS_ROOT) || true
 	chmod -R 777 $(BUILD_ENV_FOLDER) || true
 	chmod -R 777 $(TOOLCHAIN_FOLDER) || true
-	rm -rf $(DL_FOLDER) $(TOOLCHAIN_FOLDER) $(RAMFS_ROOT) $(BUILD_ENV_FOLDER) $(INITRAMFS) $(KERNEL_DIR) $(KERNEL)
+	rm -rf $(DL_FOLDER) $(TOOLCHAIN_FOLDER) $(RAMFS_ROOT) $(BUILD_ENV_FOLDER) $(INITRAMFS) $(KERNEL_DIR) $(KERNEL) $(ALSA)

@@ -27,6 +27,21 @@ struct Options {
     rfid_device: PathBuf,
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn __sync_synchronize() {
+    eprintln!("Unimplemented: sync_synchronize");
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __sync_sub_and_fetch_4() {
+    eprintln!("Unimplemented: sync_sub_and_fetch");
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __sync_add_and_fetch_4() {
+    eprintln!("Unimplemented: sync_add_and_fetch");
+}
+
 fn is_init() -> bool {
     std::process::id() == 1
 }
