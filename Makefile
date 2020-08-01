@@ -117,7 +117,7 @@ $(RAMFS_ROOT)/init: $(INIT)
 	cp $< $@
 
 $(INITRAMFS): $(RAMFS_ROOT)/proc $(RAMFS_ROOT)/dev $(RAMFS_ROOT)/init $(RAMFS_ROOT)/data $(RAMFS_ROOT)/usr/share/alsa
-	cd $(RAMFS_ROOT) && find | cpio -ov --format=newc | gzip -9 > ../$@
+	cd $(RAMFS_ROOT) && find | cpio -ov --format=newc | lz4 -l --compress --best > ../$@
 
 $(KERNEL_DIR)/Makefile:
 	git clone --depth=1 --branch $(KERNEL_BRANCH) $(KERNEL_REPO) $(KERNEL_DIR)
