@@ -47,7 +47,7 @@ fn is_init() -> bool {
 }
 
 /// Mounting stuff etc.
-fn general_setup(options: &Options) {
+fn setup(options: &Options) {
     if is_init() {
         println!("Running as init.");
         nix::mount::mount::<str, str, str, str>(
@@ -95,6 +95,24 @@ fn general_setup(options: &Options) {
     }
 }
 
+fn tear_down() {
+    if is_init() {
+        loop {
+            match nix::mount::umount(config::DATA_MOUNT_PATH) {
+                Ok(_) => break,
+                Err(nix::Error::Sys(nix::errno::Errno::EBUSY)) => {
+                    eprintln!("Waiting for sd to unmount...",);
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(o) => panic!("Unexpected error during umount: {}", o),
+            }
+        }
+        nix::sys::reboot::reboot(nix::sys::reboot::RebootMode::RB_POWER_OFF).unwrap();
+    } else {
+        eprintln!("Not powering off because not running as PID 1");
+    }
+}
+
 enum Event {
     Play(Uid),
     Stop,
@@ -123,6 +141,17 @@ fn resume_rewind_time(stop_time: Duration) -> Duration {
 }
 
 fn main() {
+    let options: Options = Options {
+        data_device: PathBuf::from("/dev/mmcblk0p2"),
+        rfid_device: PathBuf::from("/dev/spidev0.0"),
+    };
+
+    setup(&options);
+    run(options);
+    tear_down();
+}
+
+fn run(options: Options) {
     //let options: Options = argh::from_env();
     //eprintln!("Argv is: {:?}", std::env::args());
     //let mut entries = std::fs::read_dir("/dev")
@@ -136,12 +165,6 @@ fn main() {
     //for entry in entries {
     //    print!("{} ", entry);
     //}
-    let options: Options = Options {
-        data_device: PathBuf::from("/dev/mmcblk0p2"),
-        rfid_device: PathBuf::from("/dev/spidev0.0"),
-    };
-
-    general_setup(&options);
 
     let data_root = if is_init() {
         config::DATA_MOUNT_PATH
@@ -328,10 +351,4 @@ fn main() {
     // Make sure to execute all remaining led commands, then stop (with inactive led!)
     std::mem::drop(led_cmd_sink);
     led_thread.join().unwrap();
-
-    if is_init() {
-        nix::sys::reboot::reboot(nix::sys::reboot::RebootMode::RB_POWER_OFF).unwrap();
-    } else {
-        eprintln!("Not powering off because not running as PID 1");
-    }
 }
