@@ -63,6 +63,11 @@ $(BUILD_ENV_FOLDER)/usr/lib/libasound.a: $(ALSA) $(CC_MUSL)
 	mkdir -p $(BUILD_ENV_FOLDER)/usr/lib
 	cp $(ALSA)/src/.libs/* $(BUILD_ENV_FOLDER)/usr/lib/
 
+$(RAMFS_ROOT)/usr/share/alsa: $(ALSA)
+	mkdir -p $(RAMFS_ROOT)/usr/share
+	cp -r $(ALSA)/src/conf $@
+	find ramfs_root -name "Makefile*" -exec rm {} \;
+
 $(BUILD_ENV_FOLDER)/usr/lib/libc.a: $(CC_MUSL)
 	mkdir -p $(BUILD_ENV_FOLDER)/usr/lib
 	cp $(TOOLCHAIN_FOLDER_MUSL)/arm-linux-musleabihf/lib/libc.a $@
@@ -76,8 +81,6 @@ $(BUILD_ENV_FOLDER)/usr/lib/libc.a: $(CC_MUSL)
 	sed -i "s/__aeabi_memmove/fooeabi_memmove/g" $@
 	sed -i "s/__aeabi_memclr/fooeabi_memclr/g" $@
 	sed -i "s/__aeabi_memcpy/fooeabi_memcpy/g" $@
-
-alsa: $(BUILD_ENV_FOLDER)/usr/lib/libasound.a
 
 $(CC_MUSL): $(DL_FOLDER)/musl-tools.tar.xz
 	@echo $^
@@ -101,10 +104,6 @@ $(INIT): $(BUILD_ENV_FOLDER)/usr/lib/libasound.a $(BUILD_ENV_FOLDER)/usr/lib/lib
 	PKG_CONFIG_ALLOW_CROSS=1 cargo build $(CARGO_FLAGS)
 	$(CROSS_COMPILE_PREFIX_MUSL)strip $(INIT)
 
-$(RAMFS_ROOT)/lib:
-	mkdir -p $(RAMFS_ROOT)
-	if [ ! -L $@ ]; then ln -s /usr/lib $@; fi
-
 $(RAMFS_ROOT)/dev:
 	mkdir -p $@
 
@@ -117,7 +116,7 @@ $(RAMFS_ROOT)/data:
 $(RAMFS_ROOT)/init: $(INIT)
 	cp $< $@
 
-$(INITRAMFS): $(RAMFS_ROOT)/lib $(RAMFS_ROOT)/proc $(RAMFS_ROOT)/dev $(RAMFS_ROOT)/init $(RAMFS_ROOT)/data
+$(INITRAMFS): $(RAMFS_ROOT)/proc $(RAMFS_ROOT)/dev $(RAMFS_ROOT)/init $(RAMFS_ROOT)/data $(RAMFS_ROOT)/usr/share/alsa
 	cd $(RAMFS_ROOT) && find | cpio -ov --format=newc | gzip -9 > ../$@
 
 $(KERNEL_DIR)/Makefile:
