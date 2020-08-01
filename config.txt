@@ -1,19 +1,28 @@
 # See /boot/overlays/README for all available options
 
+initramfs initramfs-linux.img followkernel
+kernel vmlinuz-linux
+
 disable_splash=1
 boot_delay=0
 
-dtparam=spi=on
-#gpu_mem=64
-initramfs initramfs-linux.img followkernel
-kernel vmlinuz-linux
+# Might reduce startup time, not sure
+dtoverlay=disable-bt
+dtoverlay=disable-wifi
+
+# Faster startup, see https://www.raspberrypi.org/forums/viewtopic.php?f=72&t=84734&sid=8576fab6af19af10fa9de14b6e344e9f
+gpu_mem=16
+start_file=start_cd.elf
+fixup_file=fixup_cd.dat
 
 # Disable power LED (at least when running...)
 dtparam=pwr_led_trigger=none
 dtparam=pwr_led=activelow=off
 
-# Audio interfaces
+#spi interface
+dtparam=spi=on
 
+# Audio interfaces
 # for hifiberry audio:
 dtoverlay=hifiberry-dac
 # for on-board line out audio:
