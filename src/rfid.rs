@@ -108,27 +108,21 @@ impl RfidReader {
         let max_tries = 10; //TODO: not sure if this is a proper amount, yet!
         for _ in 0..max_tries {
             match self.mfrc.request_a(2) {
-                Err(rfid_rs::Error::Timeout) => {
-                    //println!("Wakeup: Timeout...");
-                }
-                Err(rfid_rs::Error::Communication) => {
-                    //eprintln!("Read: communication error");
-                }
+                Err(rfid_rs::Error::Timeout) => {}
+                Err(rfid_rs::Error::Communication) => {}
                 Err(o) => {
-                    eprintln!("Wakeup: Other error: {:?}", o);
+                    log!("Wakeup: Other error: {:?}", o);
                 }
                 Ok(_) => match self.mfrc.read_card_serial() {
                     Ok(serial) => {
                         return Some(serial.into());
                     }
-                    Err(rfid_rs::Error::Timeout) => {
-                        //println!("Read: Timeout");
-                    }
+                    Err(rfid_rs::Error::Timeout) => {}
                     Err(rfid_rs::Error::Communication) => {
-                        eprintln!("Read: communication error");
+                        log!("Read: communication error");
                     }
                     Err(o) => {
-                        eprintln!("Read: Other error: {:?}", o);
+                        log!("Read: Other error: {:?}", o);
                     }
                 },
             }

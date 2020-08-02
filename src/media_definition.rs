@@ -25,7 +25,7 @@ pub fn load_media_definition(
     map_definition_file: impl AsRef<Path>,
     media_file_root: impl AsRef<Path>,
 ) -> HashMap<Uid, PathBuf> {
-    let f = std::fs::File::open(map_definition_file).unwrap();
+    let f = std::fs::File::open(map_definition_file).unwrap(); // If this fails we cannot do anything anyways.
     parse_media_definition(f, media_file_root)
 }
 

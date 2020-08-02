@@ -3,6 +3,37 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime};
 
+macro_rules! log {
+    ($fmtstr:expr, $($arg:tt)+) => ({
+        use std::io::Write;
+        let mut l = crate::LOGGER.lock().unwrap(); // Lock shouldn't be poisened.
+        let l = l.as_mut().unwrap(); // We only log between init_logger and deinit_logger
+
+        println!(std::concat!("{:?}: ", $fmtstr), l.0.elapsed(), $($arg)+);
+
+        let _ = writeln!(l.1, std::concat!("{:?}: ", $fmtstr), l.0.elapsed(), $($arg)+);
+        let _ = l.1.flush();
+    });
+    ($fmtstr:expr) => ({
+        use std::io::Write;
+        let mut l = crate::LOGGER.lock().unwrap(); // Lock shouldn't be poisened.
+        let l = l.as_mut().unwrap(); // We only log between init_logger and deinit_logger
+
+        println!(std::concat!("{:?}: ", $fmtstr), l.0.elapsed());
+
+        let _ = writeln!(l.1, std::concat!("{:?}: ", $fmtstr), l.0.elapsed());
+        let _ = l.1.flush();
+    });
+}
+
+macro_rules! log_err {
+    ($msg:expr, $e:expr) => {{
+        if let Err(e) = $e {
+            log!("{}: {:?}", $msg, e);
+        }
+    }};
+}
+
 mod config;
 mod led;
 mod media_definition;
@@ -29,17 +60,17 @@ struct Options {
 
 #[no_mangle]
 pub unsafe extern "C" fn __sync_synchronize() {
-    eprintln!("Unimplemented: sync_synchronize");
+    log!("Unimplemented: sync_synchronize");
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn __sync_sub_and_fetch_4() {
-    eprintln!("Unimplemented: sync_sub_and_fetch");
+    log!("Unimplemented: sync_sub_and_fetch");
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn __sync_add_and_fetch_4() {
-    eprintln!("Unimplemented: sync_add_and_fetch");
+    log!("Unimplemented: sync_add_and_fetch");
 }
 
 fn is_init() -> bool {
@@ -49,7 +80,6 @@ fn is_init() -> bool {
 /// Mounting stuff etc.
 fn setup(options: &Options) {
     if is_init() {
-        println!("Running as init.");
         nix::mount::mount::<str, str, str, str>(
             None,
             "/dev",
@@ -57,7 +87,7 @@ fn setup(options: &Options) {
             nix::mount::MsFlags::empty(),
             None,
         )
-        .unwrap();
+        .unwrap(); // If this fails we cannot do anything anyways.
         nix::mount::mount::<str, str, str, str>(
             None,
             "/proc",
@@ -65,7 +95,7 @@ fn setup(options: &Options) {
             nix::mount::MsFlags::empty(),
             None,
         )
-        .unwrap();
+        .unwrap(); // If this fails we cannot do anything anyways.
 
         let mut sleep_duration = Duration::from_millis(10);
         loop {
@@ -90,8 +120,6 @@ fn setup(options: &Options) {
                 }
             }
         }
-    } else {
-        println!("Running as regular process.");
     }
 }
 
@@ -101,15 +129,14 @@ fn tear_down() {
             match nix::mount::umount(config::DATA_MOUNT_PATH) {
                 Ok(_) => break,
                 Err(nix::Error::Sys(nix::errno::Errno::EBUSY)) => {
-                    eprintln!("Waiting for sd to unmount...",);
+                    eprintln!("Waiting for sd to unmount...");
                     std::thread::sleep(Duration::from_millis(10));
                 }
                 Err(o) => panic!("Unexpected error during umount: {}", o),
             }
         }
         nix::sys::reboot::reboot(nix::sys::reboot::RebootMode::RB_POWER_OFF).unwrap();
-    } else {
-        eprintln!("Not powering off because not running as PID 1");
+        // If poweroff fails we cannot do anything.
     }
 }
 
@@ -125,6 +152,30 @@ enum CardState {
     Current(Uid),
     Previous(Uid, SystemTime),
     Nothing,
+}
+
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+static LOGGER: Lazy<Mutex<Option<(Instant, std::fs::File)>>> = Lazy::new(|| Mutex::new(None));
+fn init_logger(log_file_path: impl AsRef<Path>) {
+    match std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(log_file_path)
+    {
+        Ok(f) => {
+            let mut l = LOGGER.lock().unwrap();
+            *l = Some((Instant::now(), f));
+        }
+        Err(e) => {
+            panic!("Unable to initialize logger: {}", e);
+        }
+    }
+}
+
+fn deinit_logger() {
+    let mut l = LOGGER.lock().unwrap();
+    *l = None;
 }
 
 fn resume_rewind_time(stop_time: Duration) -> Duration {
@@ -147,32 +198,32 @@ fn main() {
     };
 
     setup(&options);
-    run(options);
+    init_logger(data_root().join(config::LOG_FILE));
+    log!("=============== New log ===============");
+
+    std::panic::set_hook(Box::new(|info| {
+        log!("Panic in run: {}", info);
+    }));
+
+    let _ = std::panic::catch_unwind(|| run(options));
+
+    let _ = std::panic::take_hook();
+
+    deinit_logger();
     tear_down();
 }
 
-fn run(options: Options) {
-    //let options: Options = argh::from_env();
-    //eprintln!("Argv is: {:?}", std::env::args());
-    //let mut entries = std::fs::read_dir("/dev")
-    //    .unwrap()
-    //    .map(|e| {
-    //        let s: String = e.unwrap().path().to_string_lossy().to_string();
-    //        s
-    //    })
-    //.collect::<Vec<_>>();
-    //entries.sort();
-    //for entry in entries {
-    //    print!("{} ", entry);
-    //}
-
+fn data_root() -> &'static Path {
     let data_root = if is_init() {
         config::DATA_MOUNT_PATH
     } else {
         "./"
     };
-    let data_root = Path::new(data_root);
+    &Path::new(data_root)
+}
 
+fn run(options: Options) {
+    let data_root = data_root();
     let file_map = media_definition::load_media_definition(
         data_root.join(config::MEDIA_DEFINITION_FILE),
         data_root,
@@ -193,7 +244,7 @@ fn run(options: Options) {
         .name("card_event_thread".to_owned())
         .spawn(move || {
             for e in rfid_reader.events(Duration::from_millis(100)) {
-                println!("Event: {:0x?}", e);
+                log!("Event: {:0x?}", e);
                 let event = match e {
                     rfid::RfidEvent::Added(uid) => Event::Play(uid),
                     rfid::RfidEvent::Removed => Event::Stop,
@@ -213,8 +264,7 @@ fn run(options: Options) {
             rotary_encoder::RotaryEncoderEvent::TurnLeft => Event::DecreaseVolume,
             rotary_encoder::RotaryEncoderEvent::TurnRight => Event::IncreaseVolume,
         };
-        rotary_encoder_event_sink.send(event).unwrap();
-        println!("Event: {:0x?}", e)
+        rotary_encoder_event_sink.send(event).unwrap(); //RE thread never finishes.
     });
 
     let mut save_state = save_state::SaveState::load(&save_state_path).unwrap_or_default();
@@ -255,9 +305,9 @@ fn run(options: Options) {
     if let Some((uid, pos, stop_time)) = save_state.playback_state() {
         card_state = CardState::Previous(uid, stop_time);
         if let Some(file) = file_map.get(&uid) {
-            player.load_file(file, Some(pos));
+            log_err!("Load initial file", player.load_file(file, Some(pos)));
         } else {
-            eprintln!("Cannot load unknown uid: {:x}", uid.0);
+            log!("Cannot load unknown uid: {:x}", uid.0);
         }
     }
 
@@ -291,15 +341,18 @@ fn run(options: Options) {
                         let stop_time = SystemTime::now()
                             .duration_since(remove_time)
                             .unwrap_or(Duration::from_millis(0));
-                        player.rewind(resume_rewind_time(stop_time));
+                        log_err!(
+                            "Rewind from remove time",
+                            player.rewind(resume_rewind_time(stop_time))
+                        );
                     }
                     player.play();
                 } else {
                     if let Some(file) = file_map.get(&uid) {
-                        player.load_file(file, None);
+                        log_err!("Load file for card", player.load_file(file, None));
                         player.play();
                     } else {
-                        eprintln!("Unkown card: {}", uid);
+                        log!("Unkown card: {}", uid);
                     }
                 }
                 card_state = CardState::Current(uid);
@@ -334,7 +387,7 @@ fn run(options: Options) {
         } else {
             if let Some(silence_begin) = silence_begin {
                 if silence_begin.elapsed() >= config::IDLE_SLEEP_TIME {
-                    eprintln!("Idle sleep time reached");
+                    log!("Idle sleep time reached");
                     break;
                 }
             } else {
@@ -363,9 +416,13 @@ fn run(options: Options) {
     };
     save_state.set_playback_state(playback_pos);
     save_state.set_volume(*player.volume());
-    save_state.save(&save_state_path);
+    log_err!(
+        "Failed to write save state",
+        save_state.save(&save_state_path)
+    );
 
-    // Make sure to execute all remaining led commands, then stop (with inactive led!)
+    // Make sure to execute all remaining led commands, then stop (with inactive led!).
+    // As we only stop the thread here, all led command related unwraps above are fine.
     std::mem::drop(led_cmd_sink);
     led_thread.join().unwrap();
 }

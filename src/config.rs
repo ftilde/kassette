@@ -11,3 +11,4 @@ pub const DEFAULT_VOLUME: u8 = 11;
 pub const DATA_MOUNT_PATH: &str = "/data";
 pub const MEDIA_DEFINITION_FILE: &str = "media_definition.txt";
 pub const SAVESTATE_FILE: &str = "savestate.json";
+pub const LOG_FILE: &str = "kassette.log";

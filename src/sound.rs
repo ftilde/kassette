@@ -12,27 +12,17 @@ impl AudioOutput {
         for card in alsa::card::Iter::new() {
             let card = card.unwrap();
             let name = card.get_name().unwrap();
-            println!(
+            eprintln!(
                 "Alsa card: {}, long: {}",
                 name,
                 card.get_longname().unwrap()
             );
         }
         let mixer = alsa::mixer::Mixer::new("hw:0", false).unwrap();
-        //println!("Mixer: {:?}", mixer);
         for elm in mixer.iter() {
-            //println!("MixerElm: {:?}", elm);
             let selm = alsa::mixer::Selem::new(elm).unwrap();
-            //dbg!(selm.has_volume());
-            //dbg!(selm.can_playback());
-            //dbg!(selm.can_playback());
-            //let channelid = alsa::mixer::SelemChannelId::mono();
-            //dbg!(selm.get_playback_volume(channelid).unwrap());
-            //dbg!(selm.get_playback_vol_db(channelid).unwrap());
             let (_, maxvol) = selm.get_playback_volume_range();
             selm.set_playback_volume_all(maxvol).unwrap();
-            //dbg!(selm.get_playback_volume(channelid).unwrap());
-            //dbg!(selm.get_playback_vol_db(channelid).unwrap());
         }
 
         use alsa::pcm::{Access, Format, HwParams, PCM};
@@ -78,15 +68,15 @@ impl AudioOutput {
     }
 
     fn recover(&mut self, e: alsa::Error) {
-        eprintln!("Trying to recover from error: {:?}", e);
-        self.pcm.try_recover(e, false).unwrap();
+        log!("Trying to recover from error: {:?}", e);
+        self.pcm.try_recover(e, false).unwrap(); // Not sure what to do after RECOVERY (!) fails...
         self.current_sample_num = 0;
         self.start_time = Instant::now();
     }
 
     pub fn play_buf(&mut self, buf: &[i16]) {
         let write_res = {
-            let io = self.pcm.io_i16().unwrap();
+            let io = self.pcm.io_i16().unwrap(); // Not sure what to do if this fails...
             io.writei(&buf[..])
         };
 
@@ -95,7 +85,6 @@ impl AudioOutput {
         match write_res {
             Ok(frames) => {
                 assert_eq!(frames, buf.len() / num_channels);
-                //eprintln!("Write: {:?}", pre.elapsed());
             }
             Err(e) => self.recover(e),
         }
@@ -117,13 +106,7 @@ impl AudioOutput {
         if let Some(sleep_time) =
             sample_buffer_time.checked_sub(run_time + crate::config::AUDIO_BUF_SIZE)
         {
-            //eprintln!("Sleeping for {:?}", sleep_time);
             std::thread::sleep(sleep_time);
         }
     }
-
-    ///// Wait for the stream to finish playback.
-    //pub fn drain(&self) {
-    //    self.pcm.drain().unwrap();
-    //}
 }

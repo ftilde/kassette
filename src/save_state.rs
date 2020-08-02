@@ -26,10 +26,11 @@ impl SaveState {
         f.read_to_string(&mut buf).ok()?;
         json::from_str(&buf).ok()
     }
-    pub fn save(&self, f: impl AsRef<Path>) {
-        let mut f = File::create(f).unwrap();
+    pub fn save(&self, f: impl AsRef<Path>) -> std::io::Result<()> {
+        let mut f = File::create(f)?;
         let buf = json::to_string(self);
-        f.write_all(buf.as_bytes()).unwrap();
+        f.write_all(buf.as_bytes())?;
+        Ok(())
     }
     pub fn playback_state(&self) -> Option<(Uid, PlaybackPos, SystemTime)> {
         self.playback_state.as_ref().map(|sbp| {

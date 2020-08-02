@@ -65,27 +65,33 @@ impl PlaybackPos {
     }
 }
 
+#[derive(Debug)]
+pub enum AudioSourceError {
+    Vorbis(lewton::VorbisError),
+    Io(std::io::Error),
+}
+
 impl AudioSource {
-    fn new(file_path: impl AsRef<Path>, output_sample_rate: u64) -> Self {
-        let f = std::fs::File::open(file_path).expect("Can't open file");
+    fn new(file_path: impl AsRef<Path>, output_sample_rate: u64) -> Result<Self, AudioSourceError> {
+        let f = std::fs::File::open(file_path).map_err(AudioSourceError::Io)?;
 
         // Prepare the reading
-        let srr = OggStreamReader::new(f).unwrap();
+        let srr = OggStreamReader::new(f).map_err(AudioSourceError::Vorbis)?;
 
         // Prepare the playback.
-        println!("Sample rate: {}", srr.ident_hdr.audio_sample_rate);
+        eprintln!("Sample rate: {}", srr.ident_hdr.audio_sample_rate);
 
         let n_channels = srr.ident_hdr.audio_channels as usize;
         assert_eq!(n_channels, 2, "We require 2 channels for now");
 
         let resampler = Resampler::new(srr.ident_hdr.audio_sample_rate as _, output_sample_rate);
 
-        AudioSource {
+        Ok(AudioSource {
             stream: srr,
             resampler,
             seek_pos: 0,
             current_pos: 0,
-        }
+        })
     }
 
     fn sample_rate(&self) -> u64 {
@@ -98,11 +104,14 @@ impl AudioSource {
         ))
     }
 
-    fn seek(&mut self, d: PlaybackPos) {
+    fn seek(&mut self, d: PlaybackPos) -> Result<(), AudioSourceError> {
         let pos = d.0.as_micros() as u64 * self.sample_rate() / 1_000_000;
         self.seek_pos = pos;
-        self.stream.seek_absgp_pg(pos).unwrap();
+        self.stream
+            .seek_absgp_pg(pos)
+            .map_err(AudioSourceError::Vorbis)?;
         self.current_pos = pos;
+        Ok(())
     }
 
     fn next_chunk(&mut self) -> Option<Vec<i16>> {
@@ -116,7 +125,7 @@ impl AudioSource {
                 Some(Vec::new())
             }
             Err(e) => {
-                eprintln!("Error reading chunk: {}", e);
+                log!("Error reading chunk: {}", e);
                 Some(Vec::new())
             }
         }
@@ -185,17 +194,22 @@ impl Player {
         &mut self.volume
     }
 
-    pub fn load_file(&mut self, file_path: impl AsRef<Path>, start_pos: Option<PlaybackPos>) {
-        let mut source = AudioSource::new(file_path, self.output.sample_rate());
+    pub fn load_file(
+        &mut self,
+        file_path: impl AsRef<Path>,
+        start_pos: Option<PlaybackPos>,
+    ) -> Result<(), AudioSourceError> {
+        let mut source = AudioSource::new(file_path, self.output.sample_rate())?;
 
         if let Some(start_pos) = start_pos {
-            source.seek(start_pos);
+            source.seek(start_pos)?;
         }
 
         self.state = PlayerState::Paused(source);
+        Ok(())
     }
 
-    pub fn rewind(&mut self, time: Duration) {
+    pub fn rewind(&mut self, time: Duration) -> Result<(), AudioSourceError> {
         match self.state {
             PlayerState::Paused(ref mut s)
             | PlayerState::FadeOut(ref mut s, _)
@@ -207,10 +221,11 @@ impl Player {
                         .checked_sub(time)
                         .unwrap_or(Duration::from_millis(0)),
                 );
-                s.seek(seek_pos);
+                s.seek(seek_pos)?;
             }
             PlayerState::Idle => {}
         }
+        Ok(())
     }
 
     pub fn pause(&mut self) {

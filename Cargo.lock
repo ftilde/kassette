@@ -100,6 +100,7 @@ dependencies = [
  "libc",
  "miniserde",
  "nix 0.17.0",
+ "once_cell",
  "rfid-rs",
  "rppal",
  "spidev",
@@ -197,6 +198,12 @@ checksum = "d79f1db9148be9d0e174bb3ac890f6030fcb1ed947267c5a91ee4c91b5a91e15"
 dependencies = [
  "byteorder",
 ]
+
+[[package]]
+name = "once_cell"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b631f7e854af39a1739f401cf34a8a013dfe09eac4fa4dba91e9768bd28168d"
 
 [[package]]
 name = "pkg-config"
