@@ -1,50 +1,21 @@
 use crate::rfid::Uid;
+use argh::FromArgs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime};
 
-macro_rules! log {
-    ($fmtstr:expr, $($arg:tt)+) => ({
-        use std::io::Write;
-        let mut l = crate::LOGGER.lock().unwrap(); // Lock shouldn't be poisened.
-        let l = l.as_mut().unwrap(); // We only log between init_logger and deinit_logger
-
-        println!(std::concat!("{:?}: ", $fmtstr), l.0.elapsed(), $($arg)+);
-
-        let _ = writeln!(l.1, std::concat!("{:?}: ", $fmtstr), l.0.elapsed(), $($arg)+);
-        let _ = l.1.flush();
-    });
-    ($fmtstr:expr) => ({
-        use std::io::Write;
-        let mut l = crate::LOGGER.lock().unwrap(); // Lock shouldn't be poisened.
-        let l = l.as_mut().unwrap(); // We only log between init_logger and deinit_logger
-
-        println!(std::concat!("{:?}: ", $fmtstr), l.0.elapsed());
-
-        let _ = writeln!(l.1, std::concat!("{:?}: ", $fmtstr), l.0.elapsed());
-        let _ = l.1.flush();
-    });
-}
-
-macro_rules! log_err {
-    ($msg:expr, $e:expr) => {{
-        if let Err(e) = $e {
-            log!("{}: {:?}", $msg, e);
-        }
-    }};
-}
-
 mod config;
+#[macro_use]
+mod log;
 mod led;
 mod media_definition;
 mod pins;
 mod player;
+mod polyfill;
 mod rfid;
 mod rotary_encoder;
 mod save_state;
 mod sound;
-
-use argh::FromArgs;
 
 #[derive(FromArgs)]
 /// Reach new heights.
@@ -56,21 +27,6 @@ struct Options {
     /// spi device that is used to communicate with the rfid reader
     #[argh(option, default = r#"PathBuf::from("/dev/spidev0.0")"#)]
     rfid_device: PathBuf,
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn __sync_synchronize() {
-    log!("Unimplemented: sync_synchronize");
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn __sync_sub_and_fetch_4() {
-    log!("Unimplemented: sync_sub_and_fetch");
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn __sync_add_and_fetch_4() {
-    log!("Unimplemented: sync_add_and_fetch");
 }
 
 fn is_init() -> bool {
@@ -154,30 +110,6 @@ enum CardState {
     Nothing,
 }
 
-use once_cell::sync::Lazy;
-use std::sync::Mutex;
-static LOGGER: Lazy<Mutex<Option<(Instant, std::fs::File)>>> = Lazy::new(|| Mutex::new(None));
-fn init_logger(log_file_path: impl AsRef<Path>) {
-    match std::fs::OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(log_file_path)
-    {
-        Ok(f) => {
-            let mut l = LOGGER.lock().unwrap();
-            *l = Some((Instant::now(), f));
-        }
-        Err(e) => {
-            panic!("Unable to initialize logger: {}", e);
-        }
-    }
-}
-
-fn deinit_logger() {
-    let mut l = LOGGER.lock().unwrap();
-    *l = None;
-}
-
 fn resume_rewind_time(stop_time: Duration) -> Duration {
     let relevant = stop_time
         .checked_sub(config::MIN_TIME_FOR_CONTEXT)
@@ -198,7 +130,7 @@ fn main() {
     };
 
     setup(&options);
-    init_logger(data_root().join(config::LOG_FILE));
+    log::init_logger(data_root().join(config::LOG_FILE));
     log!("=============== New log ===============");
 
     std::panic::set_hook(Box::new(|info| {
@@ -209,7 +141,7 @@ fn main() {
 
     let _ = std::panic::take_hook();
 
-    deinit_logger();
+    log::deinit_logger();
     tear_down();
 }
 
