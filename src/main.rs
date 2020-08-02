@@ -281,6 +281,7 @@ fn run(options: Options) {
                     player.play();
                 } else {
                     if let Some(file) = file_map.get(&uid) {
+                        log!("Starting to play {:?}", file);
                         log_err!("Load file for card", player.load_file(file, None));
                         player.play();
                     } else {

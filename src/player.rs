@@ -79,8 +79,6 @@ impl AudioSource {
         let srr = OggStreamReader::new(f).map_err(AudioSourceError::Vorbis)?;
 
         // Prepare the playback.
-        eprintln!("Sample rate: {}", srr.ident_hdr.audio_sample_rate);
-
         let n_channels = srr.ident_hdr.audio_channels as usize;
         assert_eq!(n_channels, 2, "We require 2 channels for now");
 
