@@ -1,7 +1,7 @@
 use crate::rfid::Uid;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 mod config;
 mod led;
@@ -250,6 +250,7 @@ fn run(options: Options) {
     .unwrap();
 
     let mut card_state = CardState::Nothing;
+    let mut silence_begin = Some(Instant::now());
 
     if let Some((uid, pos, stop_time)) = save_state.playback_state() {
         card_state = CardState::Previous(uid, stop_time);
@@ -328,16 +329,32 @@ fn run(options: Options) {
                 panic!("Player event channel closed unexpectedly")
             }
         }
+        if player.playing() {
+            silence_begin = None;
+        } else {
+            if let Some(silence_begin) = silence_begin {
+                if silence_begin.elapsed() >= config::IDLE_SLEEP_TIME {
+                    eprintln!("Idle sleep time reached");
+                    break;
+                }
+            } else {
+                silence_begin = Some(Instant::now());
+            }
+        }
         player.push_samples();
     }
 
-    led_cmd_sink
-        .send(led::LedCommand::DoubleBlink(
-            Duration::from_millis(200),
-            Duration::from_millis(100),
-            Duration::from_millis(200),
-        ))
-        .unwrap();
+    if silence_begin.is_none() || silence_begin.unwrap().elapsed() < config::IDLE_SLEEP_TIME {
+        // Only blink led if not turned off automatically. We don't want to wake anyone up if they
+        // actually went asleep.
+        led_cmd_sink
+            .send(led::LedCommand::DoubleBlink(
+                Duration::from_millis(200),
+                Duration::from_millis(100),
+                Duration::from_millis(200),
+            ))
+            .unwrap();
+    }
 
     let playback_pos = match (card_state, player.playback_pos()) {
         (CardState::Previous(uid, remove_time), Some(pos)) => Some((uid, pos, remove_time)),
