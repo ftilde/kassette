@@ -11,8 +11,7 @@ lto = "fat"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-#rfid-rs = "0.1.1"
-rfid-rs = { path = "../rfid-rs" }
+rfid-rs = "0.1.1"
 spidev = "0.4"
 libc = "0.2"
 nix = "0.17"
