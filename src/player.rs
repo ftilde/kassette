@@ -297,7 +297,10 @@ impl Player {
         }
 
         fn fade_factor(begin: PlaybackPos, current: PlaybackPos) -> f32 {
-            let diff = current.0 - begin.0;
+            let diff = current
+                .0
+                .checked_sub(begin.0)
+                .unwrap_or(Duration::from_millis(0));
             (diff.as_millis() as f32 / crate::config::FADE_TIME.as_millis() as f32).min(1.0)
         }
 
