@@ -124,6 +124,9 @@ fn resume_rewind_time(stop_time: Duration) -> Duration {
 }
 
 fn main() {
+    // Enable backtraces in case of a crash.
+    std::env::set_var("RUST_BACKTRACE", "1");
+
     let options: Options = Options {
         data_device: PathBuf::from("/dev/mmcblk0p2"),
         rfid_device: PathBuf::from("/dev/spidev0.0"),
