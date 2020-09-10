@@ -7,24 +7,34 @@ struct Resampler {
     source_sample_rate: u64,
     sink_sample_counter: u64,
     sink_sample_rate: u64,
+    n_channels: usize,
 }
 
 impl Resampler {
-    fn new(source_sample_rate: u64, sink_sample_rate: u64) -> Self {
+    fn new(source_sample_rate: u64, sink_sample_rate: u64, n_channels: usize) -> Self {
         Resampler {
             source_sample_counter: 0,
             source_sample_rate,
             sink_sample_counter: 0,
             sink_sample_rate,
+            n_channels,
         }
     }
 
     fn resample_nearest(&mut self, input: &[i16]) -> Vec<i16> {
-        assert!(input.len() % 2 == 0, "Only two channels supported");
+        assert!(
+            input.len() % self.n_channels == 0,
+            "Invalid input size for channels"
+        );
+        assert!(
+            self.n_channels == 1 || self.n_channels == 2,
+            "Invalid number of input channels"
+        );
         let mut output = Vec::new();
-        for slice in input.chunks(2) {
+        for slice in input.chunks(self.n_channels) {
+            // Output is always two channels
             let l = slice[0];
-            let r = slice[1];
+            let r = if self.n_channels == 1 { l } else { slice[1] };
 
             self.source_sample_counter += 1;
 
@@ -80,9 +90,12 @@ impl AudioSource {
 
         // Prepare the playback.
         let n_channels = srr.ident_hdr.audio_channels as usize;
-        assert_eq!(n_channels, 2, "We require 2 channels for now");
 
-        let resampler = Resampler::new(srr.ident_hdr.audio_sample_rate as _, output_sample_rate);
+        let resampler = Resampler::new(
+            srr.ident_hdr.audio_sample_rate as _,
+            output_sample_rate,
+            n_channels,
+        );
 
         Ok(AudioSource {
             stream: srr,
@@ -348,5 +361,41 @@ impl Player {
                 s
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_two_channel_resample() {
+        let mut r = Resampler::new(1, 1, 2);
+        assert_eq!(&r.resample_nearest(&[1, 2])[..], &[1, 2]);
+        assert_eq!(&r.resample_nearest(&[1, 2, 2, 3])[..], &[1, 2, 2, 3]);
+    }
+
+    #[test]
+    fn test_two_channel_resample_lower() {
+        let mut r = Resampler::new(2, 1, 2);
+        assert_eq!(&r.resample_nearest(&[1, 1, 2, 2])[..], &[2, 2]);
+        assert_eq!(&r.resample_nearest(&[1, 2])[..], &[]);
+    }
+
+    #[test]
+    fn test_two_channel_resample_higher() {
+        let mut r = Resampler::new(1, 2, 2);
+        assert_eq!(&r.resample_nearest(&[1, 1])[..], &[1, 1, 1, 1]);
+        assert_eq!(
+            &r.resample_nearest(&[1, 2, 3, 4])[..],
+            &[1, 2, 1, 2, 3, 4, 3, 4]
+        );
+    }
+
+    #[test]
+    fn test_one_channel_resample() {
+        let mut r = Resampler::new(1, 1, 1);
+        assert_eq!(&r.resample_nearest(&[1, 2])[..], &[1, 1, 2, 2]);
+        assert_eq!(&r.resample_nearest(&[1, 2, 3])[..], &[1, 1, 2, 2, 3, 3]);
     }
 }
